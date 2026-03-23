@@ -26,7 +26,7 @@ let rec calc_allot amt = function
 
 let sum_amt allocs = allocs |> List.map (fun (_str, amt) -> amt) |> List.fold_left ( + ) 0
 
-(* Unbounded pull *)
+(** Unbounded pull *)
 let rec pull_all_source ctx = function
   | Ast_canonical.SrcAccount name ->
     let acc_balance = get_account_balance ctx name in
@@ -35,7 +35,7 @@ let rec pull_all_source ctx = function
   | Ast_canonical.SrcInorder srcs -> List.concat_map (pull_all_source ctx) srcs
   | Ast_canonical.SrcAllotment _ -> failwith "[unreachable] Forbidden in unbouded mode"
 
-(* Bounded pull with cap. Doesn't fail if we don't reach the cap. *)
+(** Bounded pull with cap. Doesn't fail if we don't reach the cap. *)
 and pull_source_capped ctx cap = function
   | Ast_canonical.SrcAccount name ->
     let acc_balance = get_account_balance ctx name in
@@ -56,7 +56,7 @@ and pull_sources_capped_inorder ctx cap = function
     let got_amt = sum_amt allocs in
     List.append allocs (pull_sources_capped_inorder ctx (cap - got_amt) sources)
 
-(* Pull exactly the required amount, fail otherwise *)
+(** Pull exactly the required amount, fail otherwise *)
 and pull_amt ctx needed_amt src =
   let allocs = pull_source_capped ctx needed_amt src in
   let got_amt = sum_amt allocs in
