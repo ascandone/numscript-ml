@@ -4,7 +4,9 @@ type ctx =
   ; balances : (string * string, int) Hashtbl.t
   }
 
-let get_account_balance ctx name = Hashtbl.find ctx.balances (name, ctx.current_asset)
+let get_account_balance ctx name =
+  Hashtbl.find_opt ctx.balances (name, ctx.current_asset) |> Option.value ~default:0
+;;
 
 let send ctx name amt =
   let current_bal = get_account_balance ctx name in
