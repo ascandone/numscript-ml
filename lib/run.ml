@@ -2,6 +2,7 @@ type ctx =
   { current_asset : string
   ; vars : (string, Value.t) Hashtbl.t
   ; balances : (string * string, int) Hashtbl.t
+  ; sources : (string * int) Queue.t
   }
 
 let get_account_balance ctx name =
@@ -11,7 +12,8 @@ let get_account_balance ctx name =
 let send ctx name amt =
   let current_bal = get_account_balance ctx name in
   Hashtbl.replace ctx.balances (name, ctx.current_asset) (current_bal - amt);
-  [ name, amt ]
+  Queue.push (name, amt) ctx.sources;
+  amt
 ;;
 
 let ceil_div x y = (x + y - 1) / y
@@ -24,7 +26,7 @@ let rec calc_allot amt = function
     (ceil_val, source) :: calc_allot (amt - ceil_val) sources
 ;;
 
-let sum_amt allocs = allocs |> List.map (fun (_str, amt) -> amt) |> List.fold_left ( + ) 0
+let lst_sum = List.fold_left ( + ) 0
 
 (** Unbounded pull *)
 let rec pull_all_source ctx = function
@@ -32,7 +34,7 @@ let rec pull_all_source ctx = function
     let acc_balance = get_account_balance ctx name in
     send ctx name acc_balance
   | Ast_canonical.SrcMax (cap, sub_src) -> pull_source_capped ctx cap sub_src
-  | Ast_canonical.SrcInorder srcs -> List.concat_map (pull_all_source ctx) srcs
+  | Ast_canonical.SrcInorder srcs -> srcs |> List.map (pull_all_source ctx) |> lst_sum
   | Ast_canonical.SrcAllotment _ -> failwith "[unreachable] Forbidden in unbouded mode"
 
 (** Bounded pull with cap. Doesn't fail if we don't reach the cap. *)
@@ -46,20 +48,19 @@ and pull_source_capped ctx cap = function
   | Ast_canonical.SrcAllotment allot ->
     allot
     |> calc_allot cap
-    |> List.concat_map (fun (cap, src) -> pull_source_capped ctx cap src)
+    |> List.map (fun (cap, src) -> pull_source_capped ctx cap src)
+    |> lst_sum
 
 and pull_sources_capped_inorder ctx cap = function
-  | _ when cap <= 0 -> []
-  | [] -> []
+  | _ when cap <= 0 -> 0
+  | [] -> 0
   | src :: sources ->
-    let allocs = pull_source_capped ctx cap src in
-    let got_amt = sum_amt allocs in
-    List.append allocs (pull_sources_capped_inorder ctx (cap - got_amt) sources)
+    let got_amt = pull_source_capped ctx cap src in
+    got_amt + pull_sources_capped_inorder ctx (cap - got_amt) sources
 
 (** Pull exactly the required amount, fail otherwise *)
 and pull_amt ctx needed_amt src =
-  let allocs = pull_source_capped ctx needed_amt src in
-  let got_amt = sum_amt allocs in
+  let got_amt = pull_source_capped ctx needed_amt src in
   if got_amt < needed_amt then failwith "missing amt";
-  allocs
+  got_amt
 ;;
