@@ -28,39 +28,40 @@ let rec calc_allot amt = function
 
 let lst_sum = List.fold_left ( + ) 0
 
-(** Unbounded pull *)
-let rec pull_all_source ctx = function
-  | Ast_canonical.SrcAccount name ->
-    let acc_balance = get_account_balance ctx name in
-    send ctx name acc_balance
-  | Ast_canonical.SrcMax (cap, sub_src) -> pull_source_capped ctx cap sub_src
-  | Ast_canonical.SrcInorder srcs -> srcs |> List.map (pull_all_source ctx) |> lst_sum
-  | Ast_canonical.SrcAllotment _ -> failwith "[unreachable] Forbidden in unbouded mode"
+let min_opt n = function
+  | None -> n
+  | Some n1 -> min n n1
+;;
 
-(** Bounded pull with cap. Doesn't fail if we don't reach the cap. *)
-and pull_source_capped ctx cap = function
+(** Unbounded / Bounded pull with cap. Doesn't fail if we don't reach the cap. *)
+let rec pull_source ctx cap_opt = function
   | Ast_canonical.SrcAccount name ->
     let acc_balance = get_account_balance ctx name in
-    send ctx name (min cap acc_balance)
+    send ctx name (min_opt acc_balance cap_opt)
   | Ast_canonical.SrcMax (max_cap, sub_src) ->
-    pull_source_capped ctx (min cap max_cap) sub_src
-  | Ast_canonical.SrcInorder srcs -> pull_sources_capped_inorder ctx cap srcs
+    pull_source ctx (Some (min_opt max_cap cap_opt)) sub_src
+  | Ast_canonical.SrcInorder srcs -> pull_sources_capped_inorder ctx cap_opt srcs
   | Ast_canonical.SrcAllotment allot ->
-    allot
-    |> calc_allot cap
-    |> List.map (fun (cap, src) -> pull_source_capped ctx cap src)
-    |> lst_sum
+    (match cap_opt with
+     | None -> failwith "[unreachable] Forbidden in unbouded mode"
+     | Some cap ->
+       allot
+       |> calc_allot cap
+       |> List.map (fun (cap, src) -> pull_source ctx (Some cap) src)
+       |> lst_sum)
 
-and pull_sources_capped_inorder ctx cap = function
-  | _ when cap <= 0 -> 0
-  | [] -> 0
-  | src :: sources ->
-    let got_amt = pull_source_capped ctx cap src in
-    got_amt + pull_sources_capped_inorder ctx (cap - got_amt) sources
+and pull_sources_capped_inorder ctx cap_opt sources =
+  match sources, cap_opt with
+  | _, Some cap when cap <= 0 -> 0
+  | [], _ -> 0
+  | src :: sources, _ ->
+    let got_amt = pull_source ctx cap_opt src in
+    let new_cap_opt = Option.map (fun cap -> cap - got_amt) cap_opt in
+    got_amt + pull_sources_capped_inorder ctx new_cap_opt sources
 
 (** Pull exactly the required amount, fail otherwise *)
 and pull_amt ctx needed_amt src =
-  let got_amt = pull_source_capped ctx needed_amt src in
+  let got_amt = pull_sources_capped_inorder ctx (Some needed_amt) src in
   if got_amt < needed_amt then failwith "missing amt";
   got_amt
 ;;
