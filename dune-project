@@ -11,15 +11,20 @@
 
 (maintainers "Maintainer Name <maintainer@example.com>")
 
-(license LICENSE)
+(license ISC)
 
 (documentation https://url/to/documentation)
+
+(using menhir 2.0)
+
+(formatting
+ (enabled_for ml))
 
 (package
  (name numscript-ml)
  (synopsis "A short synopsis")
  (description "A longer description")
- (depends ocaml)
+ (depends ocaml menhir)
  (tags
   ("add topics" "to describe" your project)))
 

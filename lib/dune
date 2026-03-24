@@ -1,2 +1,9 @@
 (library
- (name numscript_ml))
+ (name numscript_ml)
+ (libraries menhirLib alcotest))
+
+(menhir
+ (modules grammar))
+
+(ocamllex
+ (modules lexer))

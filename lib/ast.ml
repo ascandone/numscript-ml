@@ -19,7 +19,7 @@ type source =
 type dest =
   | DestAccount of expr
   | DestInorder of dest_inorder_clause list * kept_or_dest
-  | DestAllotment of (expr * dest) list
+  | DestAllotment of (expr * kept_or_dest) list
 
 and kept_or_dest =
   | Kept
@@ -28,4 +28,31 @@ and kept_or_dest =
 and dest_inorder_clause =
   { cap : expr
   ; dest : kept_or_dest
+  }
+
+type statement =
+  | StmtSend of
+      { monetary : expr
+      ; source : source
+      ; destination : dest
+      }
+  | StmtSendAll of
+      { amount : expr
+      ; source : source
+      ; destination : dest
+      }
+  | Save of
+      { monetary : expr
+      ; account : expr
+      }
+
+type var =
+  { typ : string
+  ; name : string
+  ; value : expr option
+  }
+
+type program =
+  { vars : var list
+  ; statements : statement list
   }
