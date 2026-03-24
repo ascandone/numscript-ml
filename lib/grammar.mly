@@ -54,8 +54,8 @@ statement:
       { StmtSend { monetary = e; source = s; destination = d } }
       
   /* send [Asset *] (source = ... destination = ...) */
-  | SEND LBRACKET amount = expr STAR RBRACKET LPAREN SOURCE EQ s = source DESTINATION EQ d = dest RPAREN
-      { StmtSendAll { amount; source = s; destination = d } }
+  | SEND LBRACKET asset = expr STAR RBRACKET LPAREN SOURCE EQ s = source DESTINATION EQ d = dest RPAREN
+      { StmtSendAll { asset; source = s; destination = d } }
       
   /* save [Asset 100] from @account */
   | SAVE e = expr FROM acc = expr

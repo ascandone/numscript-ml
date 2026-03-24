@@ -7,11 +7,14 @@ type posting =
 
 type ctx =
   { current_asset : string
-  ; vars : (string, Value.t) Hashtbl.t
   ; balances : (string * string, int) Hashtbl.t
   ; sources : (string * int) Dynarray.t
   ; postings : posting Queue.t
   }
+
+let create_ctx ~current_asset ~balances : ctx =
+  { current_asset; balances; sources = Dynarray.create (); postings = Queue.create () }
+;;
 
 let get_account_balance ctx name =
   Hashtbl.find_opt ctx.balances (name, ctx.current_asset) |> Option.value ~default:0

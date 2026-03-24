@@ -23,14 +23,21 @@ and dest_inorder_clause =
   }
 
 type statement =
-  | StatementSend of
+  | StmtSend of
       { asset : string
       ; amount : int
       ; source : source
       ; destination : dest
       }
-  | StatementSendAll of
+  | StmtSendAll of
       { asset : string
       ; source : source
       ; destination : dest
       }
+  | Save of
+      { asset : string
+      ; amount : int
+      ; account : string
+      }
+
+type program = { statements : statement list }

@@ -15,6 +15,11 @@ let expect_asset = function
   | got -> Error { expected = "asset"; got }
 ;;
 
+let expect_account = function
+  | Account x -> Ok x
+  | got -> Error { expected = "account"; got }
+;;
+
 let expect_number = function
   | Int x -> Ok x
   | got -> Error { expected = "number"; got }

@@ -1,4 +1,4 @@
 (executable
  (public_name numscript-ml)
  (name main)
- (libraries numscript_ml))
+ (libraries numscript))

@@ -37,7 +37,7 @@ type statement =
       ; destination : dest
       }
   | StmtSendAll of
-      { amount : expr
+      { asset : expr
       ; source : source
       ; destination : dest
       }
