@@ -45,11 +45,11 @@ rule read = parse
   | "to"          { TO }
   | "remaining"   { REMAINING }
   | "kept"        { KEPT }
-  | "send"        { SEND }         (* NEW *)
-  | "save"        { SAVE }         (* NEW *)
-  | "vars"        { VARS }         (* NEW *)
-  | "source"      { SOURCE }       (* NEW *)
-  | "destination" { DESTINATION }  (* NEW *)
+  | "send"        { SEND }
+  | "save"        { SAVE }
+  | "vars"        { VARS }
+  | "source"      { SOURCE }
+  | "destination" { DESTINATION }
 
   (* Literals & Identifiers *)
   | identifier as id { IDENTIFIER id }  (* NEW: Must be below keywords! *)
