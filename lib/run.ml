@@ -1,8 +1,16 @@
+type posting =
+  { source : string
+  ; destination : string
+  ; asset : string
+  ; amount : int
+  }
+
 type ctx =
   { current_asset : string
   ; vars : (string, Value.t) Hashtbl.t
   ; balances : (string * string, int) Hashtbl.t
-  ; sources : (string * int) Queue.t
+  ; sources : (string * int) Dynarray.t
+  ; postings : posting Queue.t
   }
 
 let get_account_balance ctx name =
@@ -12,7 +20,7 @@ let get_account_balance ctx name =
 let send ctx name amt =
   let current_bal = get_account_balance ctx name in
   Hashtbl.replace ctx.balances (name, ctx.current_asset) (current_bal - amt);
-  Queue.push (name, amt) ctx.sources;
+  Dynarray.add_last ctx.sources (name, amt);
   amt
 ;;
 
@@ -64,4 +72,47 @@ and pull_amt ctx needed_amt src =
   let got_amt = pull_sources_capped_inorder ctx (Some needed_amt) src in
   if got_amt < needed_amt then failwith "missing amt";
   got_amt
+;;
+
+(* dumb, O(n) op for the POC *)
+let add_left (da : 'a Dynarray.t) (x : 'a) : unit =
+  let temp = Dynarray.to_list da in
+  Dynarray.clear da;
+  Dynarray.add_last da x;
+  List.iter (fun item -> Dynarray.add_last da item) temp
+;;
+
+(* TODO handle kept *)
+let send_to_acc ctx destination dest_cap =
+  let add source amount =
+    Queue.add { source; destination; amount; asset = ctx.current_asset } ctx.postings
+  in
+  match Dynarray.pop_last_opt ctx.sources with
+  | None -> ()
+  | Some (source, avl_amt) ->
+    (match () with
+     | () when avl_amt >= dest_cap ->
+       add source dest_cap;
+       let diff = avl_amt - dest_cap in
+       if diff != 0 then add_left ctx.sources (source, diff)
+     | () (*   avl_amt < dest_cap  *) ->
+       add source avl_amt;
+       ())
+;;
+
+let rec send_to_dest ctx amt_left = function
+  | Ast_canonical.DestAccount acc -> send_to_acc ctx acc amt_left
+  | Ast_canonical.DestInorder (dests, remaining) ->
+    dests
+    |> List.iter (fun (clause : Ast_canonical.dest_inorder_clause) ->
+      send_to_kept_or_dest ctx clause.cap clause.dest);
+    (* BUG: amt_left doesn't take prev sendings into account *)
+    send_to_kept_or_dest ctx amt_left remaining
+  | Ast_canonical.DestAllotment _ -> failwith "[TODO] DestAllotment"
+
+and send_to_kept_or_dest ctx cap = function
+  | Ast_canonical.Kept ->
+    (* TODO kept *)
+    ()
+  | Ast_canonical.Dest dest -> send_to_dest ctx cap dest
 ;;
