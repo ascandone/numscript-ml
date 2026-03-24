@@ -1,5 +1,6 @@
 type t =
   | Int of int
+  | Portion of int * int
   | Asset of string
   | Account of string
   | Monetary of string * int
@@ -22,6 +23,11 @@ let expect_number = function
 let expect_monetary = function
   | Monetary (m, v) -> Ok (m, v)
   | got -> Error { expected = "monetary"; got }
+;;
+
+let expect_portion = function
+  | Portion (num, den) -> Ok (num, den)
+  | got -> Error { expected = "portion"; got }
 ;;
 
 let expect value expecting =
