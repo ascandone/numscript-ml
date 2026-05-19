@@ -1,4 +1,7 @@
-type 'asset ctx = { vars : (string, Value.t) Hashtbl.t }
+type 'asset ctx =
+  { vars : (string, Value.t) Hashtbl.t
+  ; balance_lookup : string -> string -> int
+  }
 
 let gcd a b =
   let rec go a b = if b = 0 then a else go b (a mod b) in
@@ -32,6 +35,11 @@ let rec eval_expr ctx = function
     let left_val = Value.expect (eval_expr ctx left) Value.expect_number in
     let right_val = Value.expect (eval_expr ctx right) Value.expect_number in
     Portion (left_val, right_val)
+  | Ast.ExprFnCall ("balance", [acc_expr; asset_expr]) ->
+    let account = Value.expect (eval_expr ctx acc_expr) Value.expect_asset in
+    let asset = Value.expect (eval_expr ctx asset_expr) Value.expect_asset in
+    Value.Monetary (asset, ctx.balance_lookup account asset)
+  | Ast.ExprFnCall (name, _) -> failwith (Format.sprintf "Unknown function: %s" name)
 ;;
 
 let eval_overdraft_bound ctx expr =

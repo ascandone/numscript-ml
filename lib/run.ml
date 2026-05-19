@@ -11,10 +11,6 @@ type ctx =
   ; postings : posting Queue.t
   }
 
-let create_ctx ~current_asset ~balances : ctx =
-  { current_asset; balances; sources = Dynarray.create (); postings = Queue.create () }
-;;
-
 let get_account_balance ctx name =
   Hashtbl.find_opt ctx.balances (name, ctx.current_asset) |> Option.value ~default:0
 ;;
@@ -50,8 +46,6 @@ let calc_allot total portions_items =
   distribute leftover bases items
 ;;
 
-let lst_sum = List.fold_left ( + ) 0
-
 let min_opt n = function
   | None -> n
   | Some n1 -> min n n1
@@ -82,7 +76,7 @@ let rec pull_source ctx ?cap = function
        allot
        |> calc_allot cap
        |> List.map (fun (cap, src) -> pull_source ctx ~cap src)
-       |> lst_sum)
+       |> List.fold_left ( + ) 0)
 
 and pull_sources_capped_inorder ctx ?cap sources =
   match sources, cap with
@@ -172,13 +166,17 @@ and send_to_kept_or_dest ctx cap = function
 ;;
 
 let dedup_postings postings =
-  List.fold_left (fun acc (p : posting) ->
+  let tbl = Hashtbl.create 8 in
+  let order = Queue.create () in
+  List.iter (fun (p : posting) ->
     let key = (p.source, p.destination, p.asset) in
-    match List.assoc_opt key acc with
-    | Some amt -> List.map (fun (k, v) -> if k = key then (k, v + p.amount) else (k, v)) acc
-    | None -> acc @ [(key, p.amount)]
-  ) [] postings
-  |> List.map (fun ((source, destination, asset), amount) -> { source; destination; asset; amount })
+    (match Hashtbl.find_opt tbl key with
+     | None -> Queue.add key order; Hashtbl.add tbl key p.amount
+     | Some n -> Hashtbl.replace tbl key (n + p.amount))
+  ) postings;
+  Queue.to_seq order |> List.of_seq
+  |> List.map (fun ((source, destination, asset) as key) ->
+    { source; destination; asset; amount = Hashtbl.find tbl key })
 
 let flush_stmt_postings global_q stmt_q =
   stmt_q |> Queue.to_seq |> List.of_seq |> dedup_postings
@@ -224,25 +222,22 @@ let run_program ~vars ~balances (program : Ast.program) =
     ; postings = Queue.create ()
     }
   in
-  let eval_ctx : unit Eval_ast.ctx = { vars = Hashtbl.create 10 } in
-  program.vars
-  |> List.to_seq
-  |> Seq.map (fun (v : Ast.var) ->
-    let value =
-      match v.value with
+  let eval_ctx : unit Eval_ast.ctx =
+    { vars = Hashtbl.create 10
+    ; balance_lookup = (fun account asset ->
+        Hashtbl.find_opt run_ctx.balances (account, asset) |> Option.value ~default:0)
+    }
+  in
+  List.iter (fun (v : Ast.var) ->
+    let value = match v.value with
       | None ->
-        let key =
-          if String.length v.name > 0 && v.name.[0] = '$'
-          then String.sub v.name 1 (String.length v.name - 1)
-          else v.name
-        in
-        (match StringMap.find_opt key vars with
+        (match StringMap.find_opt v.name vars with
          | None -> failwith "Err: missing variable"
          | Some raw_value -> parse_var ~typ:v.typ ~raw_value)
-      | Some value_init -> Eval_ast.eval_expr eval_ctx value_init
+      | Some e -> Eval_ast.eval_expr eval_ctx e
     in
-    v.name, value)
-  |> Seq.iter (fun (name, value) -> Hashtbl.add eval_ctx.vars name value);
+    Hashtbl.add eval_ctx.vars v.name value
+  ) program.vars;
   match
     program.statements
     |> List.map (Eval_ast.eval_statement eval_ctx)

@@ -38,6 +38,7 @@ rule read = parse
   | '}' { RBRACE }
   | '(' { LPAREN }
   | ')' { RPAREN }
+  | ',' { COMMA }
 
   (* Keywords *)
   | "max"         { MAX }
@@ -57,7 +58,7 @@ rule read = parse
 
   (* Literals & Identifiers *)
   | identifier as id { IDENTIFIER id }
-  | var_name   as v  { VARIABLE v }
+  | var_name   as v  { VARIABLE (String.sub v 1 (String.length v - 1)) }
   | account    as a  { ACCOUNT (String.sub a 1 (String.length a - 1)) }
   | asset      as a  { ASSET a }
   | '"' ([^ '"']* as s) '"' { STRING s }

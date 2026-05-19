@@ -12,6 +12,7 @@ type expr =
   | ExprInt of int
   | ExprInfix of binop * expr * expr
   | ExprMonetaryLit of expr * expr
+  | ExprFnCall of string * expr list
 
 type source =
   | SrcAccount of expr

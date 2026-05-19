@@ -3,7 +3,8 @@ open Ast
 %}
 
 /* ----- NEW TOKENS ----- */
-%token SEND SAVE VARS SOURCE DESTINATION
+%token SEND SAVE VARS SOURCE DESTINATION BALANCE
+%token COMMA
 %token ALLOWING UNBOUNDED OVERDRAFT UP
 %token EQ STAR
 %token <string> IDENTIFIER
@@ -80,6 +81,7 @@ expr:
   | e1 = expr DIV e2 = expr { ExprInfix (Div, e1, e2) }
   | LBRACKET e1 = expr e2 = expr RBRACKET { ExprMonetaryLit (e1, e2) }
   | LPAREN e = expr RPAREN { e }
+  | name = IDENTIFIER LPAREN args = separated_list(COMMA, expr) RPAREN { ExprFnCall (name, args) }
 
 
 /* ----- SOURCES (Same as before) ----- */
