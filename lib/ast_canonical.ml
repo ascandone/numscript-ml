@@ -4,6 +4,10 @@ type portion = Portion of int * int
 
 type source =
   | SrcAccount of string
+  | SrcAccountOverdraft of
+      { account : string
+      ; max_overdraft : (string * int) option
+      }
   | SrcMax of int * source
   | SrcInorder of source list
   | SrcAllotment of (portion * source) list

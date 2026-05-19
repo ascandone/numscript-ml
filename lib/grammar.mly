@@ -4,6 +4,7 @@ open Ast
 
 /* ----- NEW TOKENS ----- */
 %token SEND SAVE VARS SOURCE DESTINATION
+%token ALLOWING UNBOUNDED OVERDRAFT UP
 %token EQ STAR
 %token <string> IDENTIFIER
 %token <string> ACCOUNT
@@ -82,8 +83,16 @@ expr:
 
 
 /* ----- SOURCES (Same as before) ----- */
+overdraft_opt:
+  | { None }
+  | ALLOWING UNBOUNDED OVERDRAFT { Some None }
+  | ALLOWING OVERDRAFT UP TO e = expr { Some (Some e) }
+
 source:
-  | e = expr { SrcAccount e }
+  | e = expr od = overdraft_opt
+      { match od with
+        | None -> SrcAccount e
+        | Some max_overdraft -> SrcAccountOverdraft { account = e; max_overdraft } }
   | MAX cap = expr FROM src = source { SrcMax (cap, src) }
   | LBRACE srcs = list(source) RBRACE { SrcInorder srcs }
   | LBRACE allots = nonempty_list(allotment_clause_src) RBRACE { SrcAllotment allots }

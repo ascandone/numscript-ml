@@ -48,6 +48,16 @@ let rec pull_source ctx ?cap = function
   | Ast_canonical.SrcAccount name ->
     let acc_balance = get_account_balance ctx name in
     send ctx name (min_opt acc_balance cap)
+  | Ast_canonical.SrcAccountOverdraft { account; max_overdraft } ->
+    let acc_balance = get_account_balance ctx account in
+    let amt =
+      match max_overdraft, cap with
+      | None, None -> acc_balance
+      | None, Some cap -> cap
+      | Some (_, limit), None -> max 0 (acc_balance + limit)
+      | Some (_, limit), Some cap -> min cap (max 0 (acc_balance + limit))
+    in
+    send ctx account amt
   | Ast_canonical.SrcMax (max_cap, sub_src) ->
     pull_source ctx ~cap:(min_opt max_cap cap) sub_src
   | Ast_canonical.SrcInorder srcs -> pull_sources_capped_inorder ctx ?cap srcs
@@ -76,40 +86,51 @@ and pull_amt ctx ~needed_amt src =
   got_amt
 ;;
 
-(* dumb, O(n) op for the POC *)
 let add_left (da : 'a Dynarray.t) (x : 'a) : unit =
   let temp = Dynarray.to_list da in
   Dynarray.clear da;
   Dynarray.add_last da x;
-  List.iter (fun item -> Dynarray.add_last da item) temp
+  List.iter (Dynarray.add_last da) temp
+
+let pop_first_opt (da : 'a Dynarray.t) : 'a option =
+  match Dynarray.to_list da with
+  | [] -> None
+  | x :: rest ->
+    Dynarray.clear da;
+    List.iter (Dynarray.add_last da) rest;
+    Some x
 ;;
 
 (* TODO handle kept *)
-let send_to_acc ctx destination ~dest_cap =
-  let add source amount =
-    Queue.add { source; destination; amount; asset = ctx.current_asset } ctx.postings
-  in
-  match Dynarray.pop_last_opt ctx.sources with
-  | None -> ()
-  | Some (source, avl_amt) ->
-    (match () with
-     | () when avl_amt >= dest_cap ->
-       add source dest_cap;
-       let diff = avl_amt - dest_cap in
-       if diff != 0 then add_left ctx.sources (source, diff)
-     | () (*   avl_amt < dest_cap  *) ->
-       add source avl_amt;
-       ())
+let rec send_to_acc ctx destination ~dest_cap =
+  if dest_cap <= 0
+  then ()
+  else
+    match pop_first_opt ctx.sources with
+    | None -> ()
+    | Some (source, avl_amt) ->
+      let add amount =
+        Queue.add { source; destination; amount; asset = ctx.current_asset } ctx.postings
+      in
+      if avl_amt >= dest_cap
+      then begin
+        add dest_cap;
+        let diff = avl_amt - dest_cap in
+        if diff > 0 then add_left ctx.sources (source, diff)
+      end
+      else begin
+        add avl_amt;
+        send_to_acc ctx destination ~dest_cap:(dest_cap - avl_amt)
+      end
 ;;
 
 let rec send_to_dest ctx ~amt_left = function
   | Ast_canonical.DestAccount acc -> send_to_acc ctx acc ~dest_cap:amt_left
   | Ast_canonical.DestInorder (dests, remaining) ->
-    dests
-    |> List.iter (fun (clause : Ast_canonical.dest_inorder_clause) ->
-      send_to_kept_or_dest ctx clause.cap clause.dest);
-    (* BUG: amt_left doesn't take prev sendings into account *)
-    send_to_kept_or_dest ctx amt_left remaining
+    List.iter (fun (clause : Ast_canonical.dest_inorder_clause) ->
+      send_to_kept_or_dest ctx clause.cap clause.dest) dests;
+    let fixed_total = List.fold_left (fun acc (c : Ast_canonical.dest_inorder_clause) -> acc + c.cap) 0 dests in
+    send_to_kept_or_dest ctx (amt_left - fixed_total) remaining
   | Ast_canonical.DestAllotment _ -> failwith "[TODO] DestAllotment"
 
 and send_to_kept_or_dest ctx cap = function

@@ -28,10 +28,23 @@ let rec eval_expr ctx = function
     Portion (left_val, right_val)
 ;;
 
+let eval_overdraft_bound ctx expr =
+  match eval_expr ctx expr with
+  | Value.Monetary (_, amt) -> amt
+  | _ -> failwith "overdraft bound must be a monetary or number"
+;;
+
 let rec eval_source ctx = function
   | Ast.SrcAccount acc ->
     let acc_val = Value.expect (eval_expr ctx acc) Value.expect_asset in
     Ast_canonical.SrcAccount acc_val
+  | Ast.SrcAccountOverdraft { account; max_overdraft } ->
+    let acc_val = Value.expect (eval_expr ctx account) Value.expect_asset in
+    let max_overdraft =
+      max_overdraft
+      |> Option.map (fun expr -> Value.expect (eval_expr ctx expr) Value.expect_monetary)
+    in
+    Ast_canonical.SrcAccountOverdraft { account = acc_val; max_overdraft }
   | Ast.SrcMax (cap, src) ->
     (* TODO check asset *)
     let _asset, cap_val = Value.expect (eval_expr ctx cap) Value.expect_monetary in
@@ -55,7 +68,8 @@ let rec eval_dest ctx = function
     Ast_canonical.DestInorder
       ( List.map
           (fun (clause : Ast.dest_inorder_clause) : Ast_canonical.dest_inorder_clause ->
-             { cap = 0; dest = eval_kept_or_dest ctx clause.dest })
+             let cap = eval_overdraft_bound ctx clause.cap in
+             { cap; dest = eval_kept_or_dest ctx clause.dest })
           dests
       , eval_kept_or_dest ctx rem )
   | Ast.DestAllotment _ -> failwith "TODO SrcAllotment"

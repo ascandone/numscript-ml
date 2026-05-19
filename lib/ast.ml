@@ -15,6 +15,10 @@ type expr =
 
 type source =
   | SrcAccount of expr
+  | SrcAccountOverdraft of
+      { account : expr
+      ; max_overdraft : expr option
+      }
   | SrcMax of expr * source
   | SrcInorder of source list
   | SrcAllotment of (expr * source) list

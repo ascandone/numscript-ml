@@ -50,6 +50,10 @@ rule read = parse
   | "vars"        { VARS }
   | "source"      { SOURCE }
   | "destination" { DESTINATION }
+  | "allowing"    { ALLOWING }
+  | "unbounded"   { UNBOUNDED }
+  | "overdraft"   { OVERDRAFT }
+  | "up"          { UP }
 
   (* Literals & Identifiers *)
   | identifier as id { IDENTIFIER id }
