@@ -77,32 +77,39 @@ let apply_postings initial_balances postings =
     initial_balances
     postings
 
+let format_posting source destination asset amount =
+  Yojson.Safe.pretty_to_string
+    (`Assoc
+       [ "source", `String source
+       ; "destination", `String destination
+       ; "asset", `String asset
+       ; "amount", `Int amount
+       ])
+
 let check_postings (actual : Run.posting list) expected fail =
   let n_actual = List.length actual in
   let n_expected = List.length expected in
-  if n_actual <> n_expected
-  then fail (Printf.sprintf "postings: expected %d, got %d" n_expected n_actual)
-  else
-    List.iter2
-      (fun (a : Run.posting) (e : Specs_format.posting) ->
-         if a.source <> e.source
-         || a.destination <> e.destination
-         || a.asset <> e.asset
-         || a.amount <> int_of_float e.amount
-         then
-           fail
-             (Printf.sprintf
-                "posting mismatch: expected {%s -> %s %s %g}, got {%s -> %s %s %d}"
-                e.source
-                e.destination
-                e.asset
-                e.amount
-                a.source
-                a.destination
-                a.asset
-                a.amount))
-      actual
-      expected
+  let posting_matches (a : Run.posting) (e : Specs_format.posting) =
+    a.source = e.source
+    && a.destination = e.destination
+    && a.asset = e.asset
+    && a.amount = int_of_float e.amount
+  in
+  let mismatch =
+    n_actual <> n_expected
+    || List.exists2 (fun a e -> not (posting_matches a e)) actual expected
+  in
+  if mismatch then begin
+    let fmt_expected (e : Specs_format.posting) =
+      format_posting e.source e.destination e.asset (int_of_float e.amount)
+    in
+    let fmt_actual (a : Run.posting) =
+      format_posting a.source a.destination a.asset a.amount
+    in
+    let exp_lines = String.concat "\n" (List.map fmt_expected expected) in
+    let got_lines = String.concat "\n" (List.map fmt_actual actual) in
+    fail (Printf.sprintf "postings mismatch\nexpected:\n%s\ngot:\n%s" exp_lines got_lines)
+  end
 
 let check_end_balances_exact end_balances expected fail =
   Specs_format.PairsMap.iter
