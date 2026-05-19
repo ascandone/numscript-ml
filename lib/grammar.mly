@@ -6,6 +6,9 @@ open Ast
 %token SEND SAVE VARS SOURCE DESTINATION
 %token EQ STAR
 %token <string> IDENTIFIER
+%token <string> ACCOUNT
+%token <string> ASSET
+%token <string> STRING
 
 /* ----- EXISTING TOKENS ----- */
 %token <string> VARIABLE
@@ -65,6 +68,9 @@ statement:
 /* ----- EXPRESSIONS (Same as before) ----- */
 expr:
   | v = VARIABLE { ExprVar v }
+  | a = ACCOUNT  { ExprAccount a }
+  | a = ASSET    { ExprAsset a }
+  | s = STRING   { ExprString s }
   | i = INT { ExprInt i }
   | p = PERC { ExprPerc p }
   | MINUS e = expr %prec UMINUS { ExprInfix (Sub, ExprInt 0, e) }

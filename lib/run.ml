@@ -1,5 +1,9 @@
 include Run_intf
 
+type run_error = MissingFunds
+
+exception RunError of run_error
+
 type ctx =
   { current_asset : string
   ; balances : (string * string, int) Hashtbl.t
@@ -68,7 +72,7 @@ and pull_sources_capped_inorder ctx ?cap sources =
 (** Pull exactly the required amount, fail otherwise *)
 and pull_amt ctx ~needed_amt src =
   let got_amt = pull_source ctx ~cap:needed_amt src in
-  if got_amt < needed_amt then failwith "missing amt";
+  if got_amt < needed_amt then raise (RunError MissingFunds);
   got_amt
 ;;
 
@@ -164,9 +168,12 @@ let run_program ~vars ~balances (program : Ast.program) =
       | Some value_init -> Eval_ast.eval_expr eval_ctx value_init
     in
     v.name, value)
-  |> Seq.iter (fun (name, value) -> ());
-  program.statements
-  |> List.map (Eval_ast.eval_statement eval_ctx)
-  |> List.iter (run_stmt run_ctx);
-  run_ctx.postings |> Queue.to_seq |> List.of_seq
+  |> Seq.iter (fun (name, value) -> Hashtbl.add eval_ctx.vars name value);
+  match
+    program.statements
+    |> List.map (Eval_ast.eval_statement eval_ctx)
+    |> List.iter (run_stmt run_ctx)
+  with
+  | exception RunError e -> Error e
+  | () -> Ok (run_ctx.postings |> Queue.to_seq |> List.of_seq)
 ;;

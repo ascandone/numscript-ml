@@ -52,10 +52,11 @@ rule read = parse
   | "destination" { DESTINATION }
 
   (* Literals & Identifiers *)
-  | identifier as id { IDENTIFIER id }  (* NEW: Must be below keywords! *)
+  | identifier as id { IDENTIFIER id }
   | var_name   as v  { VARIABLE v }
-  | account    as a  { VARIABLE a }
-  | asset      as a  { VARIABLE a }
+  | account    as a  { ACCOUNT (String.sub a 1 (String.length a - 1)) }
+  | asset      as a  { ASSET a }
+  | '"' ([^ '"']* as s) '"' { STRING s }
   
   | number as i { INT (int_of_string (strip_underscores i)) }
   | perc   as p { PERC (parse_perc p) }

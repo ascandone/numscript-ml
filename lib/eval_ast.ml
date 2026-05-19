@@ -1,7 +1,13 @@
 type 'asset ctx = { vars : (string, Value.t) Hashtbl.t }
 
 let rec eval_expr ctx = function
-  | Ast.ExprVar name -> Hashtbl.find ctx.vars name
+  | Ast.ExprVar name ->
+    (match Hashtbl.find_opt ctx.vars name with
+     | None -> failwith (Format.sprintf "Error: var `%s` not found" name)
+     | Some v -> v)
+  | Ast.ExprAccount name -> Value.Asset name
+  | Ast.ExprAsset name -> Value.Asset name
+  | Ast.ExprString s -> Value.String s
   | Ast.ExprInt n -> Value.Int n
   | Ast.ExprPerc _ -> failwith "TODO perc"
   | Ast.ExprMonetaryLit (mon, amt) ->

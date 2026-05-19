@@ -5,6 +5,9 @@ type binop =
 
 type expr =
   | ExprVar of string
+  | ExprAccount of string
+  | ExprString of string
+  | ExprAsset of string
   | ExprPerc of int
   | ExprInt of int
   | ExprInfix of binop * expr * expr
