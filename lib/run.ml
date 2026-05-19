@@ -1,9 +1,4 @@
-type posting =
-  { source : string
-  ; destination : string
-  ; asset : string
-  ; amount : int
-  }
+include Run_intf
 
 type ctx =
   { current_asset : string
@@ -45,34 +40,34 @@ let min_opt n = function
 ;;
 
 (** Unbounded / Bounded pull with cap. Doesn't fail if we don't reach the cap. *)
-let rec pull_source ctx cap_opt = function
+let rec pull_source ctx ?cap = function
   | Ast_canonical.SrcAccount name ->
     let acc_balance = get_account_balance ctx name in
-    send ctx name (min_opt acc_balance cap_opt)
+    send ctx name (min_opt acc_balance cap)
   | Ast_canonical.SrcMax (max_cap, sub_src) ->
-    pull_source ctx (Some (min_opt max_cap cap_opt)) sub_src
-  | Ast_canonical.SrcInorder srcs -> pull_sources_capped_inorder ctx cap_opt srcs
+    pull_source ctx ~cap:(min_opt max_cap cap) sub_src
+  | Ast_canonical.SrcInorder srcs -> pull_sources_capped_inorder ctx ?cap srcs
   | Ast_canonical.SrcAllotment allot ->
-    (match cap_opt with
+    (match cap with
      | None -> failwith "[unreachable] Forbidden in unbouded mode"
      | Some cap ->
        allot
        |> calc_allot cap
-       |> List.map (fun (cap, src) -> pull_source ctx (Some cap) src)
+       |> List.map (fun (cap, src) -> pull_source ctx ~cap src)
        |> lst_sum)
 
-and pull_sources_capped_inorder ctx cap_opt sources =
-  match sources, cap_opt with
+and pull_sources_capped_inorder ctx ?cap sources =
+  match sources, cap with
   | _, Some cap when cap <= 0 -> 0
   | [], _ -> 0
   | src :: sources, _ ->
-    let got_amt = pull_source ctx cap_opt src in
-    let new_cap_opt = Option.map (fun cap -> cap - got_amt) cap_opt in
-    got_amt + pull_sources_capped_inorder ctx new_cap_opt sources
+    let got_amt = pull_source ctx ?cap src in
+    let new_cap_opt = Option.map (fun cap -> cap - got_amt) cap in
+    got_amt + pull_sources_capped_inorder ctx ?cap:new_cap_opt sources
 
 (** Pull exactly the required amount, fail otherwise *)
-and pull_amt ctx needed_amt src =
-  let got_amt = pull_sources_capped_inorder ctx (Some needed_amt) src in
+and pull_amt ctx ~needed_amt src =
+  let got_amt = pull_source ctx ~cap:needed_amt src in
   if got_amt < needed_amt then failwith "missing amt";
   got_amt
 ;;
@@ -86,7 +81,7 @@ let add_left (da : 'a Dynarray.t) (x : 'a) : unit =
 ;;
 
 (* TODO handle kept *)
-let send_to_acc ctx destination dest_cap =
+let send_to_acc ctx destination ~dest_cap =
   let add source amount =
     Queue.add { source; destination; amount; asset = ctx.current_asset } ctx.postings
   in
@@ -103,8 +98,8 @@ let send_to_acc ctx destination dest_cap =
        ())
 ;;
 
-let rec send_to_dest ctx amt_left = function
-  | Ast_canonical.DestAccount acc -> send_to_acc ctx acc amt_left
+let rec send_to_dest ctx ~amt_left = function
+  | Ast_canonical.DestAccount acc -> send_to_acc ctx acc ~dest_cap:amt_left
   | Ast_canonical.DestInorder (dests, remaining) ->
     dests
     |> List.iter (fun (clause : Ast_canonical.dest_inorder_clause) ->
@@ -117,5 +112,61 @@ and send_to_kept_or_dest ctx cap = function
   | Ast_canonical.Kept ->
     (* TODO kept *)
     ()
-  | Ast_canonical.Dest dest -> send_to_dest ctx cap dest
+  | Ast_canonical.Dest dest -> send_to_dest ctx dest ~amt_left:cap
+;;
+
+let run_stmt ctx = function
+  | Ast_canonical.StmtSend { asset; amount; source; destination } ->
+    let ctx = { ctx with current_asset = asset } in
+    let _amt_got = pull_amt ctx ~needed_amt:amount source in
+    let () = send_to_dest ctx ~amt_left:amount destination in
+    ()
+  | Ast_canonical.StmtSendAll { asset; source; destination } ->
+    let ctx = { ctx with current_asset = asset } in
+    let amt_got = pull_source ctx source in
+    let () = send_to_dest ctx ~amt_left:amt_got destination in
+    ()
+  | Ast_canonical.Save _ -> failwith "TODO save"
+;;
+
+let parse_var ~typ ~raw_value =
+  match typ with
+  | "account" -> Value.Account raw_value
+  | "asset" -> Value.Asset raw_value
+  | "string" -> Value.String raw_value
+  | "number" -> Value.Int (int_of_string raw_value)
+  | "monetary" ->
+    (match String.split_on_char ' ' raw_value with
+     | [ asset; amt ] -> Value.Monetary (asset, int_of_string amt)
+     | _ -> failwith "Error: invalid monetary lit")
+  | "portion" -> failwith "TODO parse portion"
+  | _ -> failwith "Error: unimplemented typ"
+;;
+
+let run_program ~vars ~balances (program : Ast.program) =
+  let run_ctx : ctx =
+    { current_asset = ""
+    ; balances = PairsMap.to_seq balances |> Hashtbl.of_seq
+    ; sources = Dynarray.create ()
+    ; postings = Queue.create ()
+    }
+  in
+  let eval_ctx : unit Eval_ast.ctx = { vars = Hashtbl.create 10 } in
+  program.vars
+  |> List.to_seq
+  |> Seq.map (fun (v : Ast.var) ->
+    let value =
+      match v.value with
+      | None ->
+        (match StringMap.find_opt v.name vars with
+         | None -> failwith "Err: missing variable"
+         | Some raw_value -> parse_var ~typ:v.typ ~raw_value)
+      | Some value_init -> Eval_ast.eval_expr eval_ctx value_init
+    in
+    v.name, value)
+  |> Seq.iter (fun (name, value) -> ());
+  program.statements
+  |> List.map (Eval_ast.eval_statement eval_ctx)
+  |> List.iter (run_stmt run_ctx);
+  run_ctx.postings |> Queue.to_seq |> List.of_seq
 ;;

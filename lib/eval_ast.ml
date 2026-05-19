@@ -1,9 +1,4 @@
-type 'asset ctx =
-  { current_asset : 'asset
-  ; vars : (string, Value.t) Hashtbl.t
-  ; balances : (string * string, int) Hashtbl.t
-  ; runner_ctx : Run.ctx
-  }
+type 'asset ctx = { vars : (string, Value.t) Hashtbl.t }
 
 let rec eval_expr ctx = function
   | Ast.ExprVar name -> Hashtbl.find ctx.vars name
@@ -67,19 +62,16 @@ and eval_kept_or_dest ctx = function
 let eval_statement ctx = function
   | Ast.StmtSendAll { asset; source; destination } ->
     let asset = Value.expect (eval_expr ctx asset) Value.expect_asset in
-    let ctx : string ctx = { ctx with current_asset = asset } in
     let source = eval_source ctx source in
     let destination = eval_dest ctx destination in
     Ast_canonical.StmtSendAll { asset; source; destination }
   | Ast.StmtSend { monetary; source; destination } ->
     let asset, amount = Value.expect (eval_expr ctx monetary) Value.expect_monetary in
-    let ctx : string ctx = { ctx with current_asset = asset } in
     let source = eval_source ctx source in
     let destination = eval_dest ctx destination in
     Ast_canonical.StmtSend { asset; amount; source; destination }
   | Ast.Save { monetary; account } ->
     let asset, amount = Value.expect (eval_expr ctx monetary) Value.expect_monetary in
-    let ctx : string ctx = { ctx with current_asset = asset } in
     let account = Value.expect (eval_expr ctx account) Value.expect_account in
     Ast_canonical.Save { asset; amount; account }
 ;;

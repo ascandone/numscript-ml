@@ -2,6 +2,7 @@ type t =
   | Int of int
   | Portion of int * int
   | Asset of string
+  | String of string
   | Account of string
   | Monetary of string * int
 
