@@ -15,7 +15,7 @@ type source =
 type dest =
   | DestAccount of string
   | DestInorder of dest_inorder_clause list * kept_or_dest
-  | DestAllotment of (portion * dest) list
+  | DestAllotment of (portion * kept_or_dest) list
 
 and kept_or_dest =
   | Kept

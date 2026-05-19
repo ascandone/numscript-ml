@@ -21,12 +21,12 @@ type source =
       }
   | SrcMax of expr * source
   | SrcInorder of source list
-  | SrcAllotment of (expr * source) list
+  | SrcAllotment of (expr option * source) list
 
 type dest =
   | DestAccount of expr
   | DestInorder of dest_inorder_clause list * kept_or_dest
-  | DestAllotment of (expr * kept_or_dest) list
+  | DestAllotment of (expr option * kept_or_dest) list
 
 and kept_or_dest =
   | Kept

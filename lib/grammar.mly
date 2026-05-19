@@ -95,20 +95,38 @@ source:
         | Some max_overdraft -> SrcAccountOverdraft { account = e; max_overdraft } }
   | MAX cap = expr FROM src = source { SrcMax (cap, src) }
   | LBRACE srcs = list(source) RBRACE { SrcInorder srcs }
-  | LBRACE allots = nonempty_list(allotment_clause_src) RBRACE { SrcAllotment allots }
+  | LBRACE allots = allotment_src_clauses RBRACE { SrcAllotment allots }
 
-allotment_clause_src:
-  | e = expr FROM src = source { (e, src) }
+/* Allotment source clauses: must start with an expr (not REMAINING) */
+allotment_src_clauses:
+  | e = expr FROM src = source rest = allotment_src_rest
+      { (Some e, src) :: rest }
+
+allotment_src_rest:
+  | /* empty */ { [] }
+  | e = expr FROM src = source rest = allotment_src_rest
+      { (Some e, src) :: rest }
+  | REMAINING FROM src = source
+      { [(None, src)] }
 
 
-/* ----- DESTINATIONS (Same as before) ----- */
+/* ----- DESTINATIONS ----- */
 dest:
   | e = expr { DestAccount e }
-  | LBRACE allots = nonempty_list(allotment_clause_dest) RBRACE { DestAllotment allots }
+  | LBRACE allots = allotment_dest_clauses RBRACE { DestAllotment allots }
   | LBRACE clauses = list(dest_inorder_clause) REMAINING kd = kept_or_dest RBRACE { DestInorder (clauses, kd) }
 
-allotment_clause_dest:
-  | e = expr kd = kept_or_dest { (e, kd) }
+/* Allotment dest clauses: must start with an expr (not REMAINING) */
+allotment_dest_clauses:
+  | e = expr kd = kept_or_dest rest = allotment_dest_rest
+      { (Some e, kd) :: rest }
+
+allotment_dest_rest:
+  | /* empty */ { [] }
+  | e = expr kd = kept_or_dest rest = allotment_dest_rest
+      { (Some e, kd) :: rest }
+  | REMAINING kd = kept_or_dest
+      { [(None, kd)] }
 
 kept_or_dest:
   | TO d = dest { Dest d }

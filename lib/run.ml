@@ -26,14 +26,28 @@ let send ctx name amt =
   amt
 ;;
 
-let ceil_div x y = (x + y - 1) / y
+let gcd a b =
+  let rec go a b = if b = 0 then a else go b (a mod b) in
+  go (abs a) (abs b)
 
-(* TODO bug *)
-let rec calc_allot amt = function
-  | [] -> []
-  | (Ast_canonical.Portion (num, denom), source) :: sources ->
-    let ceil_val = ceil_div (amt * num) denom in
-    (ceil_val, source) :: calc_allot (amt - ceil_val) sources
+let lcm a b = a / gcd a b * b
+
+let calc_allot total portions_items =
+  let portions = List.map fst portions_items in
+  let items = List.map snd portions_items in
+  let dens = List.map (fun (Ast_canonical.Portion (_, d)) -> d) portions in
+  let lc = List.fold_left lcm 1 dens in
+  let nums = List.map (fun (Ast_canonical.Portion (n, d)) -> n * (lc / d)) portions in
+  let bases = List.map (fun n -> n * total / lc) nums in
+  let leftover = total - List.fold_left ( + ) 0 bases in
+  let rec distribute extra bases items =
+    match bases, items with
+    | [], _ | _, [] -> []
+    | b :: bs, x :: xs ->
+      let amt = if extra > 0 then b + 1 else b in
+      (amt, x) :: distribute (extra - 1) bs xs
+  in
+  distribute leftover bases items
 ;;
 
 let lst_sum = List.fold_left ( + ) 0
@@ -47,19 +61,19 @@ let min_opt n = function
 let rec pull_source ctx ?cap = function
   | Ast_canonical.SrcAccount name ->
     let acc_balance = get_account_balance ctx name in
-    send ctx name (min_opt acc_balance cap)
+    send ctx name (min_opt (max 0 acc_balance) cap)
   | Ast_canonical.SrcAccountOverdraft { account; max_overdraft } ->
     let acc_balance = get_account_balance ctx account in
     let amt =
       match max_overdraft, cap with
       | None, None -> acc_balance
       | None, Some cap -> cap
-      | Some (_, limit), None -> max 0 (acc_balance + limit)
-      | Some (_, limit), Some cap -> min cap (max 0 (acc_balance + limit))
+      | Some (_, limit), None -> max 0 (acc_balance + max 0 limit)
+      | Some (_, limit), Some cap -> min cap (max 0 (acc_balance + max 0 limit))
     in
     send ctx account amt
   | Ast_canonical.SrcMax (max_cap, sub_src) ->
-    pull_source ctx ~cap:(min_opt max_cap cap) sub_src
+    pull_source ctx ~cap:(max 0 (min_opt max_cap cap)) sub_src
   | Ast_canonical.SrcInorder srcs -> pull_sources_capped_inorder ctx ?cap srcs
   | Ast_canonical.SrcAllotment allot ->
     (match cap with
@@ -110,7 +124,11 @@ let rec send_to_acc ctx destination ~dest_cap =
     | None -> ()
     | Some (source, avl_amt) ->
       let add amount =
-        Queue.add { source; destination; amount; asset = ctx.current_asset } ctx.postings
+        if amount > 0 then begin
+          Queue.add { source; destination; amount; asset = ctx.current_asset } ctx.postings;
+          let dst_bal = Hashtbl.find_opt ctx.balances (destination, ctx.current_asset) |> Option.value ~default:0 in
+          Hashtbl.replace ctx.balances (destination, ctx.current_asset) (dst_bal + amount)
+        end
       in
       if avl_amt >= dest_cap
       then begin
@@ -127,36 +145,66 @@ let rec send_to_acc ctx destination ~dest_cap =
 let rec send_to_dest ctx ~amt_left = function
   | Ast_canonical.DestAccount acc -> send_to_acc ctx acc ~dest_cap:amt_left
   | Ast_canonical.DestInorder (dests, remaining) ->
-    List.iter (fun (clause : Ast_canonical.dest_inorder_clause) ->
-      send_to_kept_or_dest ctx clause.cap clause.dest) dests;
-    let fixed_total = List.fold_left (fun acc (c : Ast_canonical.dest_inorder_clause) -> acc + c.cap) 0 dests in
-    send_to_kept_or_dest ctx (amt_left - fixed_total) remaining
-  | Ast_canonical.DestAllotment _ -> failwith "[TODO] DestAllotment"
+    let amt_used = List.fold_left (fun used (clause : Ast_canonical.dest_inorder_clause) ->
+      let actual_cap = min clause.cap (amt_left - used) in
+      send_to_kept_or_dest ctx actual_cap clause.dest;
+      used + actual_cap
+    ) 0 dests in
+    send_to_kept_or_dest ctx (amt_left - amt_used) remaining
+  | Ast_canonical.DestAllotment allots ->
+    List.iter (fun (cap, kd) -> send_to_kept_or_dest ctx cap kd) (calc_allot amt_left allots)
 
 and send_to_kept_or_dest ctx cap = function
   | Ast_canonical.Kept ->
-    (* TODO kept *)
-    ()
+    let rec restore remaining =
+      if remaining <= 0 then ()
+      else match pop_first_opt ctx.sources with
+      | None -> ()
+      | Some (source, avl_amt) ->
+        let restored = min avl_amt remaining in
+        let bal = Hashtbl.find_opt ctx.balances (source, ctx.current_asset) |> Option.value ~default:0 in
+        Hashtbl.replace ctx.balances (source, ctx.current_asset) (bal + restored);
+        if avl_amt > remaining then add_left ctx.sources (source, avl_amt - remaining);
+        restore (remaining - restored)
+    in
+    restore cap
   | Ast_canonical.Dest dest -> send_to_dest ctx dest ~amt_left:cap
 ;;
 
+let dedup_postings postings =
+  List.fold_left (fun acc (p : posting) ->
+    let key = (p.source, p.destination, p.asset) in
+    match List.assoc_opt key acc with
+    | Some amt -> List.map (fun (k, v) -> if k = key then (k, v + p.amount) else (k, v)) acc
+    | None -> acc @ [(key, p.amount)]
+  ) [] postings
+  |> List.map (fun ((source, destination, asset), amount) -> { source; destination; asset; amount })
+
+let flush_stmt_postings global_q stmt_q =
+  stmt_q |> Queue.to_seq |> List.of_seq |> dedup_postings
+  |> List.iter (fun p -> Queue.add p global_q)
+
 let run_stmt ctx = function
   | Ast_canonical.StmtSend { asset; amount; source; destination } ->
-    let ctx = { ctx with current_asset = asset } in
+    let global_q = ctx.postings in
+    let stmt_q = Queue.create () in
+    let ctx = { ctx with current_asset = asset; postings = stmt_q } in
     let _amt_got = pull_amt ctx ~needed_amt:amount source in
-    let () = send_to_dest ctx ~amt_left:amount destination in
-    ()
+    send_to_dest ctx ~amt_left:amount destination;
+    flush_stmt_postings global_q stmt_q
   | Ast_canonical.StmtSendAll { asset; source; destination } ->
-    let ctx = { ctx with current_asset = asset } in
+    let global_q = ctx.postings in
+    let stmt_q = Queue.create () in
+    let ctx = { ctx with current_asset = asset; postings = stmt_q } in
     let amt_got = pull_source ctx source in
-    let () = send_to_dest ctx ~amt_left:amt_got destination in
-    ()
+    send_to_dest ctx ~amt_left:amt_got destination;
+    flush_stmt_postings global_q stmt_q
   | Ast_canonical.Save _ -> failwith "TODO save"
 ;;
 
 let parse_var ~typ ~raw_value =
   match typ with
-  | "account" -> Value.Account raw_value
+  | "account" -> Value.Asset raw_value
   | "asset" -> Value.Asset raw_value
   | "string" -> Value.String raw_value
   | "number" -> Value.Int (int_of_string raw_value)
@@ -183,7 +231,12 @@ let run_program ~vars ~balances (program : Ast.program) =
     let value =
       match v.value with
       | None ->
-        (match StringMap.find_opt v.name vars with
+        let key =
+          if String.length v.name > 0 && v.name.[0] = '$'
+          then String.sub v.name 1 (String.length v.name - 1)
+          else v.name
+        in
+        (match StringMap.find_opt key vars with
          | None -> failwith "Err: missing variable"
          | Some raw_value -> parse_var ~typ:v.typ ~raw_value)
       | Some value_init -> Eval_ast.eval_expr eval_ctx value_init

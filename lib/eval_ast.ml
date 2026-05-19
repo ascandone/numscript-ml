@@ -1,5 +1,11 @@
 type 'asset ctx = { vars : (string, Value.t) Hashtbl.t }
 
+let gcd a b =
+  let rec go a b = if b = 0 then a else go b (a mod b) in
+  go (abs a) (abs b)
+
+let lcm a b = a / gcd a b * b
+
 let rec eval_expr ctx = function
   | Ast.ExprVar name ->
     (match Hashtbl.find_opt ctx.vars name with
@@ -9,7 +15,7 @@ let rec eval_expr ctx = function
   | Ast.ExprAsset name -> Value.Asset name
   | Ast.ExprString s -> Value.String s
   | Ast.ExprInt n -> Value.Int n
-  | Ast.ExprPerc _ -> failwith "TODO perc"
+  | Ast.ExprPerc n -> Value.Portion (n, 100)
   | Ast.ExprMonetaryLit (mon, amt) ->
     let mon_val = Value.expect (eval_expr ctx mon) Value.expect_asset in
     let amt_val = Value.expect (eval_expr ctx amt) Value.expect_number in
@@ -34,10 +40,32 @@ let eval_overdraft_bound ctx expr =
   | _ -> failwith "overdraft bound must be a monetary or number"
 ;;
 
+let resolve_allotment ctx allots eval_item =
+  let tagged = List.map (fun (e_opt, x) ->
+    let p = match e_opt with
+      | Some e -> `Fixed (Value.expect (eval_expr ctx e) Value.expect_portion)
+      | None -> `Remaining
+    in
+    p, eval_item x
+  ) allots in
+  let fixed = List.filter_map (function (`Fixed nd, _) -> Some nd | _ -> None) tagged in
+  let lc = List.fold_left (fun acc (_, d) -> lcm acc d) 1 fixed in
+  let sum_fixed = List.fold_left (fun acc (n, d) -> acc + n * (lc / d)) 0 fixed in
+  List.map (fun (p, x) ->
+    let portion = match p with
+      | `Fixed (n, d) -> Ast_canonical.Portion (n, d)
+      | `Remaining -> Ast_canonical.Portion (lc - sum_fixed, lc)
+    in
+    portion, x
+  ) tagged
+;;
+
 let rec eval_source ctx = function
   | Ast.SrcAccount acc ->
     let acc_val = Value.expect (eval_expr ctx acc) Value.expect_asset in
-    Ast_canonical.SrcAccount acc_val
+    if acc_val = "world"
+    then Ast_canonical.SrcAccountOverdraft { account = "world"; max_overdraft = None }
+    else Ast_canonical.SrcAccount acc_val
   | Ast.SrcAccountOverdraft { account; max_overdraft } ->
     let acc_val = Value.expect (eval_expr ctx account) Value.expect_asset in
     let max_overdraft =
@@ -51,13 +79,7 @@ let rec eval_source ctx = function
     Ast_canonical.SrcMax (cap_val, eval_source ctx src)
   | Ast.SrcInorder srcs -> Ast_canonical.SrcInorder (List.map (eval_source ctx) srcs)
   | Ast.SrcAllotment allots ->
-    Ast_canonical.SrcAllotment
-      (List.map
-         (fun (por, src) ->
-            let num, den = Value.expect (eval_expr ctx por) Value.expect_portion in
-            let ev_src = eval_source ctx src in
-            Ast_canonical.Portion (num, den), ev_src)
-         allots)
+    Ast_canonical.SrcAllotment (resolve_allotment ctx allots (eval_source ctx))
 ;;
 
 let rec eval_dest ctx = function
@@ -72,7 +94,8 @@ let rec eval_dest ctx = function
              { cap; dest = eval_kept_or_dest ctx clause.dest })
           dests
       , eval_kept_or_dest ctx rem )
-  | Ast.DestAllotment _ -> failwith "TODO SrcAllotment"
+  | Ast.DestAllotment allots ->
+    Ast_canonical.DestAllotment (resolve_allotment ctx allots (eval_kept_or_dest ctx))
 
 and eval_kept_or_dest ctx = function
   | Ast.Kept -> Ast_canonical.Kept
