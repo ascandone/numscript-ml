@@ -53,6 +53,10 @@ type statement =
       { monetary : expr
       ; account : expr
       }
+  | FnStatement of
+      { name : string
+      ; args : expr list
+      }
 
 type var =
   { typ : string

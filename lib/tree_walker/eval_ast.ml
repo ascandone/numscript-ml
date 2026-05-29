@@ -148,4 +148,5 @@ let eval_statement ctx =
     let asset, amount = Value.expect (eval_expr ctx monetary) Value.expect_monetary in
     let account = Value.expect (eval_expr ctx account) Value.expect_account in
     Ast_canonical.Save { asset; amount; account }
+  | Ast.FnStatement _ -> failwith "TODO fn"
 ;;
