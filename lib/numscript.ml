@@ -1,4 +1,4 @@
 module Specs_format = Specs_format
 module Inputs = Inputs
-module Parser = Parser
+module Syntax = Syntax
 module Run = Run

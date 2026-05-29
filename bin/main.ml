@@ -4,16 +4,19 @@ let trim_suffix ~suffix s =
   if String.ends_with ~suffix s
   then String.sub s 0 (String.length s - String.length suffix)
   else s
+;;
 
 (* ---- Conversion helpers ---- *)
 
 let sf_pairs_to_run m =
   Specs_format.PairsMap.bindings m
   |> List.fold_left (fun acc (k, v) -> Run.PairsMap.add k v acc) Run.PairsMap.empty
+;;
 
 let sf_strmap_to_run m =
   Specs_format.StringMap.bindings m
   |> List.fold_left (fun acc (k, v) -> Run.StringMap.add k v acc) Run.StringMap.empty
+;;
 
 let inputs_balances_to_run (b : Inputs.balances) : int Run.PairsMap.t =
   Inputs.StringMap.fold
@@ -25,16 +28,15 @@ let inputs_balances_to_run (b : Inputs.balances) : int Run.PairsMap.t =
          acc)
     b
     Run.PairsMap.empty
+;;
 
 let inputs_vars_to_run (v : Inputs.variables_map) : string Run.StringMap.t =
   Inputs.StringMap.bindings v
   |> List.fold_left (fun acc (k, v) -> Run.StringMap.add k v acc) Run.StringMap.empty
+;;
 
-let merge_balances a b =
-  Specs_format.PairsMap.union (fun _ _ v -> Some v) a b
-
-let merge_vars a b =
-  Specs_format.StringMap.union (fun _ _ v -> Some v) a b
+let merge_balances a b = Specs_format.PairsMap.union (fun _ _ v -> Some v) a b
+let merge_vars a b = Specs_format.StringMap.union (fun _ _ v -> Some v) a b
 
 (* ---- Specs runner helpers ---- *)
 
@@ -59,6 +61,7 @@ let compute_movements postings =
        Specs_format.StringMap.add p.source by_dest' acc)
     Specs_format.StringMap.empty
     postings
+;;
 
 let apply_postings initial_balances postings =
   List.fold_left
@@ -76,15 +79,17 @@ let apply_postings initial_balances postings =
        |> Specs_format.PairsMap.add key_dst (dst_bal + p.amount))
     initial_balances
     postings
+;;
 
 let format_posting source destination asset amount =
   Yojson.Safe.pretty_to_string
     (`Assoc
-       [ "source", `String source
-       ; "destination", `String destination
-       ; "asset", `String asset
-       ; "amount", `Int amount
-       ])
+        [ "source", `String source
+        ; "destination", `String destination
+        ; "asset", `String asset
+        ; "amount", `Int amount
+        ])
+;;
 
 let check_postings (actual : Run.posting list) expected fail =
   let n_actual = List.length actual in
@@ -99,7 +104,8 @@ let check_postings (actual : Run.posting list) expected fail =
     n_actual <> n_expected
     || List.exists2 (fun a e -> not (posting_matches a e)) actual expected
   in
-  if mismatch then begin
+  if mismatch
+  then (
     let fmt_expected (e : Specs_format.posting) =
       format_posting e.source e.destination e.asset (int_of_float e.amount)
     in
@@ -108,8 +114,8 @@ let check_postings (actual : Run.posting list) expected fail =
     in
     let exp_lines = String.concat "\n" (List.map fmt_expected expected) in
     let got_lines = String.concat "\n" (List.map fmt_actual actual) in
-    fail (Printf.sprintf "postings mismatch\nexpected:\n%s\ngot:\n%s" exp_lines got_lines)
-  end
+    fail (Printf.sprintf "postings mismatch\nexpected:\n%s\ngot:\n%s" exp_lines got_lines))
+;;
 
 let check_end_balances_exact end_balances expected fail =
   Specs_format.PairsMap.iter
@@ -130,12 +136,12 @@ let check_end_balances_exact end_balances expected fail =
     expected;
   Specs_format.PairsMap.iter
     (fun (account, asset) actual_amt ->
-       if actual_amt <> 0
-          && not (Specs_format.PairsMap.mem (account, asset) expected)
+       if actual_amt <> 0 && not (Specs_format.PairsMap.mem (account, asset) expected)
        then
          fail
            (Printf.sprintf "unexpected end balance %s %s = %d" account asset actual_amt))
     end_balances
+;;
 
 let check_end_balances_include end_balances expected fail =
   Specs_format.PairsMap.iter
@@ -154,6 +160,7 @@ let check_end_balances_include end_balances expected fail =
               expected_amt
               actual_amt))
     expected
+;;
 
 let check_movements actual_movements expected fail =
   Specs_format.StringMap.iter
@@ -185,6 +192,7 @@ let check_movements actual_movements expected fail =
               by_asset)
          by_dest)
     expected
+;;
 
 let run_assertions ~initial_balances (tc : Specs_format.test_case) result =
   let failures = ref [] in
@@ -203,12 +211,16 @@ let run_assertions ~initial_balances (tc : Specs_format.test_case) result =
       | None -> ());
      (match tc.expect_end_balances_include with
       | Some expected ->
-        check_end_balances_include (apply_postings initial_balances postings) expected fail
+        check_end_balances_include
+          (apply_postings initial_balances postings)
+          expected
+          fail
       | None -> ());
      (match tc.expect_movements with
       | Some expected -> check_movements (compute_movements postings) expected fail
       | None -> ()));
   List.rev !failures
+;;
 
 let run_specs_file specs_file_path any_failed =
   let numscript_file_path = trim_suffix ~suffix:".specs.json" specs_file_path in
@@ -220,17 +232,19 @@ let run_specs_file specs_file_path any_failed =
   let numscript_source =
     In_channel.with_open_text numscript_file_path In_channel.input_all
   in
-  let ast = Parser.parse numscript_source in
+  let ast = Syntax.Parser.parse numscript_source in
   let top_balances = Option.value specs.balances ~default:Specs_format.PairsMap.empty in
   let top_vars = Option.value specs.variables ~default:Specs_format.StringMap.empty in
   let has_focus =
-    List.exists (fun (tc : Specs_format.test_case) -> tc.focus = Some true) specs.test_cases
+    List.exists
+      (fun (tc : Specs_format.test_case) -> tc.focus = Some true)
+      specs.test_cases
   in
   List.iter
     (fun (tc : Specs_format.test_case) ->
        if tc.skip = Some true || (has_focus && tc.focus <> Some true)
        then Printf.printf "SKIP %s\n" tc.it
-       else begin
+       else (
          let balances =
            merge_balances
              top_balances
@@ -250,17 +264,16 @@ let run_specs_file specs_file_path any_failed =
          let failures = run_assertions ~initial_balances:balances tc result in
          if failures = []
          then Printf.printf "PASS %s\n" tc.it
-         else begin
+         else (
            any_failed := true;
            Printf.printf "FAIL %s\n" tc.it;
-           List.iter (fun msg -> Printf.printf "  %s\n" msg) failures
-         end
-       end)
+           List.iter (fun msg -> Printf.printf "  %s\n" msg) failures)))
     specs.test_cases
+;;
 
 let find_specs_files path =
   if Sys.file_exists path && Sys.is_directory path
-  then begin
+  then (
     let rec scan dir =
       Sys.readdir dir
       |> Array.to_list
@@ -272,9 +285,9 @@ let find_specs_files path =
         then [ full ]
         else [])
     in
-    scan path
-  end
+    scan path)
   else [ path ]
+;;
 
 (* ---- Subcommands ---- *)
 
@@ -283,6 +296,7 @@ let cmd_test path =
   let any_failed = ref false in
   List.iter (fun f -> run_specs_file f any_failed) specs_files;
   if !any_failed then exit 1
+;;
 
 let posting_to_json (p : Run.posting) =
   `Assoc
@@ -291,15 +305,16 @@ let posting_to_json (p : Run.posting) =
     ; "asset", `String p.asset
     ; "amount", `Int p.amount
     ]
+;;
 
 let cmd_run script_path =
   let inputs_path = script_path ^ ".inputs.json" in
   let inputs =
     if Sys.file_exists inputs_path
-    then
+    then (
       match Inputs.inputs_of_yojson (Yojson.Safe.from_file inputs_path) with
       | Ok x -> x
-      | Error err -> failwith err
+      | Error err -> failwith err)
     else
       { Inputs.schema = None
       ; balances = None
@@ -309,7 +324,7 @@ let cmd_run script_path =
       }
   in
   let source = In_channel.with_open_text script_path In_channel.input_all in
-  let ast = Parser.parse source in
+  let ast = Syntax.Parser.parse source in
   let balances =
     inputs.balances |> Option.fold ~none:Run.PairsMap.empty ~some:inputs_balances_to_run
   in
@@ -324,11 +339,16 @@ let cmd_run script_path =
     let json = `Assoc [ "postings", `List (List.map posting_to_json postings) ] in
     print_string (Yojson.Safe.to_string json);
     print_newline ()
+;;
 
 let () =
   match Array.to_list Sys.argv with
   | _ :: "test" :: path :: _ -> cmd_test path
   | _ :: "run" :: path :: _ -> cmd_run path
   | _ ->
-    Printf.eprintf "usage:\n  numscript-ml test <specs-file-or-folder>\n  numscript-ml run <script.num>\n";
+    Printf.eprintf
+      "usage:\n\
+      \  numscript-ml test <specs-file-or-folder>\n\
+      \  numscript-ml run <script.num>\n";
     exit 1
+;;

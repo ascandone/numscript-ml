@@ -239,7 +239,7 @@ let parse_var ~typ ~raw_value =
   | _ -> failwith "Error: unimplemented typ"
 ;;
 
-let run_program ~vars ~balances (program : Ast.program) =
+let run_program ~vars ~balances (program : Syntax.Ast.program) =
   let run_ctx : ctx =
     { current_asset = ""
     ; balances = PairsMap.to_seq balances |> Hashtbl.of_seq
@@ -255,7 +255,7 @@ let run_program ~vars ~balances (program : Ast.program) =
     }
   in
   List.iter
-    (fun (v : Ast.var) ->
+    (fun (v : Syntax.Ast.var) ->
        let value =
          match v.value with
          | None ->
