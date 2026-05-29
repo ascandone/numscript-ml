@@ -1,5 +1,5 @@
 (library
  (name numscript)
- (libraries menhirLib yojson syntax)
+ (libraries yojson syntax tree_walker)
  (preprocess
   (pps ppx_deriving_yojson)))

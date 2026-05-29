@@ -7,6 +7,7 @@ let trim_suffix ~suffix s =
 ;;
 
 (* ---- Conversion helpers ---- *)
+open Tree_walker
 
 let sf_pairs_to_run m =
   Specs_format.PairsMap.bindings m
