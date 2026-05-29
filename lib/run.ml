@@ -25,6 +25,7 @@ let send ctx name amt =
 let gcd a b =
   let rec go a b = if b = 0 then a else go b (a mod b) in
   go (abs a) (abs b)
+;;
 
 let lcm a b = a / gcd a b * b
 
@@ -99,6 +100,7 @@ let add_left (da : 'a Dynarray.t) (x : 'a) : unit =
   Dynarray.clear da;
   Dynarray.add_last da x;
   List.iter (Dynarray.add_last da) temp
+;;
 
 let pop_first_opt (da : 'a Dynarray.t) : 'a option =
   match Dynarray.to_list da with
@@ -113,53 +115,67 @@ let pop_first_opt (da : 'a Dynarray.t) : 'a option =
 let rec send_to_acc ctx destination ~dest_cap =
   if dest_cap <= 0
   then ()
-  else
+  else (
     match pop_first_opt ctx.sources with
     | None -> ()
     | Some (source, avl_amt) ->
       let add amount =
-        if amount > 0 then begin
-          Queue.add { source; destination; amount; asset = ctx.current_asset } ctx.postings;
-          let dst_bal = Hashtbl.find_opt ctx.balances (destination, ctx.current_asset) |> Option.value ~default:0 in
-          Hashtbl.replace ctx.balances (destination, ctx.current_asset) (dst_bal + amount)
-        end
+        if amount > 0
+        then (
+          Queue.add
+            { source; destination; amount; asset = ctx.current_asset }
+            ctx.postings;
+          let dst_bal =
+            Hashtbl.find_opt ctx.balances (destination, ctx.current_asset)
+            |> Option.value ~default:0
+          in
+          Hashtbl.replace ctx.balances (destination, ctx.current_asset) (dst_bal + amount))
       in
       if avl_amt >= dest_cap
-      then begin
+      then (
         add dest_cap;
         let diff = avl_amt - dest_cap in
-        if diff > 0 then add_left ctx.sources (source, diff)
-      end
-      else begin
+        if diff > 0 then add_left ctx.sources (source, diff))
+      else (
         add avl_amt;
-        send_to_acc ctx destination ~dest_cap:(dest_cap - avl_amt)
-      end
+        send_to_acc ctx destination ~dest_cap:(dest_cap - avl_amt)))
 ;;
 
 let rec send_to_dest ctx ~amt_left = function
   | Ast_canonical.DestAccount acc -> send_to_acc ctx acc ~dest_cap:amt_left
   | Ast_canonical.DestInorder (dests, remaining) ->
-    let amt_used = List.fold_left (fun used (clause : Ast_canonical.dest_inorder_clause) ->
-      let actual_cap = min clause.cap (amt_left - used) in
-      send_to_kept_or_dest ctx actual_cap clause.dest;
-      used + actual_cap
-    ) 0 dests in
+    let amt_used =
+      List.fold_left
+        (fun used (clause : Ast_canonical.dest_inorder_clause) ->
+           let actual_cap = min clause.cap (amt_left - used) in
+           send_to_kept_or_dest ctx actual_cap clause.dest;
+           used + actual_cap)
+        0
+        dests
+    in
     send_to_kept_or_dest ctx (amt_left - amt_used) remaining
   | Ast_canonical.DestAllotment allots ->
-    List.iter (fun (cap, kd) -> send_to_kept_or_dest ctx cap kd) (calc_allot amt_left allots)
+    List.iter
+      (fun (cap, kd) -> send_to_kept_or_dest ctx cap kd)
+      (calc_allot amt_left allots)
 
 and send_to_kept_or_dest ctx cap = function
   | Ast_canonical.Kept ->
     let rec restore remaining =
-      if remaining <= 0 then ()
-      else match pop_first_opt ctx.sources with
-      | None -> ()
-      | Some (source, avl_amt) ->
-        let restored = min avl_amt remaining in
-        let bal = Hashtbl.find_opt ctx.balances (source, ctx.current_asset) |> Option.value ~default:0 in
-        Hashtbl.replace ctx.balances (source, ctx.current_asset) (bal + restored);
-        if avl_amt > remaining then add_left ctx.sources (source, avl_amt - remaining);
-        restore (remaining - restored)
+      if remaining <= 0
+      then ()
+      else (
+        match pop_first_opt ctx.sources with
+        | None -> ()
+        | Some (source, avl_amt) ->
+          let restored = min avl_amt remaining in
+          let bal =
+            Hashtbl.find_opt ctx.balances (source, ctx.current_asset)
+            |> Option.value ~default:0
+          in
+          Hashtbl.replace ctx.balances (source, ctx.current_asset) (bal + restored);
+          if avl_amt > remaining then add_left ctx.sources (source, avl_amt - remaining);
+          restore (remaining - restored))
     in
     restore cap
   | Ast_canonical.Dest dest -> send_to_dest ctx dest ~amt_left:cap
@@ -168,19 +184,28 @@ and send_to_kept_or_dest ctx cap = function
 let dedup_postings postings =
   let tbl = Hashtbl.create 8 in
   let order = Queue.create () in
-  List.iter (fun (p : posting) ->
-    let key = (p.source, p.destination, p.asset) in
-    (match Hashtbl.find_opt tbl key with
-     | None -> Queue.add key order; Hashtbl.add tbl key p.amount
-     | Some n -> Hashtbl.replace tbl key (n + p.amount))
-  ) postings;
-  Queue.to_seq order |> List.of_seq
+  List.iter
+    (fun (p : posting) ->
+       let key = p.source, p.destination, p.asset in
+       match Hashtbl.find_opt tbl key with
+       | None ->
+         Queue.add key order;
+         Hashtbl.add tbl key p.amount
+       | Some n -> Hashtbl.replace tbl key (n + p.amount))
+    postings;
+  Queue.to_seq order
+  |> List.of_seq
   |> List.map (fun ((source, destination, asset) as key) ->
     { source; destination; asset; amount = Hashtbl.find tbl key })
+;;
 
 let flush_stmt_postings global_q stmt_q =
-  stmt_q |> Queue.to_seq |> List.of_seq |> dedup_postings
+  stmt_q
+  |> Queue.to_seq
+  |> List.of_seq
+  |> dedup_postings
   |> List.iter (fun p -> Queue.add p global_q)
+;;
 
 let run_stmt ctx = function
   | Ast_canonical.StmtSend { asset; amount; source; destination } ->
@@ -224,20 +249,23 @@ let run_program ~vars ~balances (program : Ast.program) =
   in
   let eval_ctx : unit Eval_ast.ctx =
     { vars = Hashtbl.create 10
-    ; balance_lookup = (fun account asset ->
-        Hashtbl.find_opt run_ctx.balances (account, asset) |> Option.value ~default:0)
+    ; balance_lookup =
+        (fun account asset ->
+          Hashtbl.find_opt run_ctx.balances (account, asset) |> Option.value ~default:0)
     }
   in
-  List.iter (fun (v : Ast.var) ->
-    let value = match v.value with
-      | None ->
-        (match StringMap.find_opt v.name vars with
-         | None -> failwith "Err: missing variable"
-         | Some raw_value -> parse_var ~typ:v.typ ~raw_value)
-      | Some e -> Eval_ast.eval_expr eval_ctx e
-    in
-    Hashtbl.add eval_ctx.vars v.name value
-  ) program.vars;
+  List.iter
+    (fun (v : Ast.var) ->
+       let value =
+         match v.value with
+         | None ->
+           (match StringMap.find_opt v.name vars with
+            | None -> failwith "Err: missing variable"
+            | Some raw_value -> parse_var ~typ:v.typ ~raw_value)
+         | Some e -> Eval_ast.eval_expr eval_ctx e
+       in
+       Hashtbl.add eval_ctx.vars v.name value)
+    program.vars;
   match
     program.statements
     |> List.map (Eval_ast.eval_statement eval_ctx)
