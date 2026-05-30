@@ -5,5 +5,5 @@ type run_error = MissingFunds
 val run_program
   :  vars:string StringMap.t
   -> balances:int PairsMap.t
-  -> Ast.program
+  -> Syntax.Ast.program
   -> (posting list, run_error) result

@@ -1,0 +1,9 @@
+(library
+ (name syntax)
+ (libraries menhirLib))
+
+(menhir
+ (modules grammar))
+
+(ocamllex
+ (modules lexer))

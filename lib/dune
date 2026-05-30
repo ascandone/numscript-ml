@@ -1,11 +1,5 @@
 (library
  (name numscript)
- (libraries menhirLib yojson)
+ (libraries yojson syntax tree_walker)
  (preprocess
   (pps ppx_deriving_yojson)))
-
-(menhir
- (modules grammar))
-
-(ocamllex
- (modules lexer))

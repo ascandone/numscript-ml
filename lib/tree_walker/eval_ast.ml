@@ -6,10 +6,13 @@ type 'asset ctx =
 let gcd a b =
   let rec go a b = if b = 0 then a else go b (a mod b) in
   go (abs a) (abs b)
+;;
 
 let lcm a b = a / gcd a b * b
 
-let rec eval_expr ctx = function
+let rec eval_expr ctx =
+  let open Syntax in
+  function
   | Ast.ExprVar name ->
     (match Hashtbl.find_opt ctx.vars name with
      | None -> failwith (Format.sprintf "Error: var `%s` not found" name)
@@ -35,7 +38,7 @@ let rec eval_expr ctx = function
     let left_val = Value.expect (eval_expr ctx left) Value.expect_number in
     let right_val = Value.expect (eval_expr ctx right) Value.expect_number in
     Portion (left_val, right_val)
-  | Ast.ExprFnCall ("balance", [acc_expr; asset_expr]) ->
+  | Ast.ExprFnCall ("balance", [ acc_expr; asset_expr ]) ->
     let account = Value.expect (eval_expr ctx acc_expr) Value.expect_asset in
     let asset = Value.expect (eval_expr ctx asset_expr) Value.expect_asset in
     Value.Monetary (asset, ctx.balance_lookup account asset)
@@ -49,26 +52,40 @@ let eval_overdraft_bound ctx expr =
 ;;
 
 let resolve_allotment ctx allots eval_item =
-  let tagged = List.map (fun (e_opt, x) ->
-    let p = match e_opt with
-      | Some e -> `Fixed (Value.expect (eval_expr ctx e) Value.expect_portion)
-      | None -> `Remaining
-    in
-    p, eval_item x
-  ) allots in
-  let fixed = List.filter_map (function (`Fixed nd, _) -> Some nd | _ -> None) tagged in
+  let tagged =
+    List.map
+      (fun (e_opt, x) ->
+         let p =
+           match e_opt with
+           | Some e -> `Fixed (Value.expect (eval_expr ctx e) Value.expect_portion)
+           | None -> `Remaining
+         in
+         p, eval_item x)
+      allots
+  in
+  let fixed =
+    List.filter_map
+      (function
+        | `Fixed nd, _ -> Some nd
+        | _ -> None)
+      tagged
+  in
   let lc = List.fold_left (fun acc (_, d) -> lcm acc d) 1 fixed in
-  let sum_fixed = List.fold_left (fun acc (n, d) -> acc + n * (lc / d)) 0 fixed in
-  List.map (fun (p, x) ->
-    let portion = match p with
-      | `Fixed (n, d) -> Ast_canonical.Portion (n, d)
-      | `Remaining -> Ast_canonical.Portion (lc - sum_fixed, lc)
-    in
-    portion, x
-  ) tagged
+  let sum_fixed = List.fold_left (fun acc (n, d) -> acc + (n * (lc / d))) 0 fixed in
+  List.map
+    (fun (p, x) ->
+       let portion =
+         match p with
+         | `Fixed (n, d) -> Ast_canonical.Portion (n, d)
+         | `Remaining -> Ast_canonical.Portion (lc - sum_fixed, lc)
+       in
+       portion, x)
+    tagged
 ;;
 
-let rec eval_source ctx = function
+let rec eval_source ctx =
+  let open Syntax in
+  function
   | Ast.SrcAccount acc ->
     let acc_val = Value.expect (eval_expr ctx acc) Value.expect_asset in
     if acc_val = "world"
@@ -90,7 +107,9 @@ let rec eval_source ctx = function
     Ast_canonical.SrcAllotment (resolve_allotment ctx allots (eval_source ctx))
 ;;
 
-let rec eval_dest ctx = function
+let rec eval_dest ctx =
+  let open Syntax in
+  function
   | Ast.DestAccount acc ->
     let acc_val = Value.expect (eval_expr ctx acc) Value.expect_asset in
     Ast_canonical.DestAccount acc_val
@@ -105,12 +124,16 @@ let rec eval_dest ctx = function
   | Ast.DestAllotment allots ->
     Ast_canonical.DestAllotment (resolve_allotment ctx allots (eval_kept_or_dest ctx))
 
-and eval_kept_or_dest ctx = function
+and eval_kept_or_dest ctx =
+  let open Syntax in
+  function
   | Ast.Kept -> Ast_canonical.Kept
   | Ast.Dest dest -> Ast_canonical.Dest (eval_dest ctx dest)
 ;;
 
-let eval_statement ctx = function
+let eval_statement ctx =
+  let open Syntax in
+  function
   | Ast.StmtSendAll { asset; source; destination } ->
     let asset = Value.expect (eval_expr ctx asset) Value.expect_asset in
     let source = eval_source ctx source in
@@ -125,4 +148,5 @@ let eval_statement ctx = function
     let asset, amount = Value.expect (eval_expr ctx monetary) Value.expect_monetary in
     let account = Value.expect (eval_expr ctx account) Value.expect_account in
     Ast_canonical.Save { asset; amount; account }
+  | Ast.FnStatement _ -> failwith "TODO fn"
 ;;
