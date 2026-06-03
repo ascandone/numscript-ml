@@ -88,12 +88,12 @@ exception RunError of run_error
 let eval_bytecode (ctx : ctx) =
   Array.iter
   @@ function
-  | Program.Expr_FetchConst { typ; pool_idx } ->
-    (match typ with
-     | Program.ExprTyp_Account | Program.ExprTyp_Asset | Program.ExprTyp_String ->
+  | Program.Expr_FetchConst { pool; pool_idx } ->
+    (match pool with
+     | `StringLike ->
        let str = ctx.program.constant_pool.string_like.(pool_idx) in
        Stack.push str ctx.stacks.string_like
-     | Program.ExprTyp_Number ->
+     | `Int ->
        let str = ctx.program.constant_pool.int.(pool_idx) in
        Stack.push str ctx.stacks.int)
   | Program.Expr_NumNeg ->
