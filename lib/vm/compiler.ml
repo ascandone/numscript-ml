@@ -131,12 +131,12 @@ let rec compile_source ctx =
     let* () = compile_source ctx sub_source in
     Ok ()
   | Ast.SrcInorder sources ->
-    let* () = iter_result (compile_source ctx) sources in
     (* We push a dummy instruction first, as we'll only know the end index after
       compilation of all the sources *)
     let inorder_src_idx =
       push_stack_idx (Program.Src_Inorder { end_idx = -1 }) ctx.sources
     in
+    let* () = iter_result (compile_source ctx) sources in
     (* TODO check: do we want end_index or end_index + 1 ? *)
     let end_idx = Stack.length ctx.sources in
     Hashtbl.replace ctx.source_patches inorder_src_idx (Program.Src_Inorder { end_idx });
