@@ -78,7 +78,7 @@ let string_map_to_yojson value_to_yojson map =
 (* --- 2. Schema Definitions --- *)
 
 (* The deriver will automatically use string_map_of_yojson for these! *)
-type balances = int pairs_map [@@deriving yojson]
+type balances = int64 pairs_map [@@deriving yojson]
 type variables_map = string string_map [@@deriving yojson]
 type accounts_metadata = string pairs_map [@@deriving yojson]
 type tx_metadata = string string_map [@@deriving yojson]

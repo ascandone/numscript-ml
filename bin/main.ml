@@ -19,12 +19,12 @@ let sf_strmap_to_run m =
   |> List.fold_left (fun acc (k, v) -> Run.StringMap.add k v acc) Run.StringMap.empty
 ;;
 
-let inputs_balances_to_run (b : Inputs.balances) : int Run.PairsMap.t =
+let inputs_balances_to_run (b : Inputs.balances) : int64 Run.PairsMap.t =
   Inputs.StringMap.fold
     (fun account asset_map acc ->
        Inputs.StringMap.fold
          (fun asset amount acc ->
-            Run.PairsMap.add (account, asset) (int_of_float amount) acc)
+            Run.PairsMap.add (account, asset) (Int64.of_float amount) acc)
          asset_map
          acc)
     b
@@ -56,7 +56,7 @@ let compute_movements postings =
          Specs_format.StringMap.find_opt p.asset by_asset |> Option.value ~default:0.0
        in
        let by_asset' =
-         Specs_format.StringMap.add p.asset (current +. float_of_int p.amount) by_asset
+         Specs_format.StringMap.add p.asset (current +. Int64.to_float p.amount) by_asset
        in
        let by_dest' = Specs_format.StringMap.add p.destination by_asset' by_dest in
        Specs_format.StringMap.add p.source by_dest' acc)
@@ -70,14 +70,14 @@ let apply_postings initial_balances postings =
        let key_src = p.source, p.asset in
        let key_dst = p.destination, p.asset in
        let src_bal =
-         Specs_format.PairsMap.find_opt key_src balances |> Option.value ~default:0
+         Specs_format.PairsMap.find_opt key_src balances |> Option.value ~default:0L
        in
        let dst_bal =
-         Specs_format.PairsMap.find_opt key_dst balances |> Option.value ~default:0
+         Specs_format.PairsMap.find_opt key_dst balances |> Option.value ~default:0L
        in
        balances
-       |> Specs_format.PairsMap.add key_src (src_bal - p.amount)
-       |> Specs_format.PairsMap.add key_dst (dst_bal + p.amount))
+       |> Specs_format.PairsMap.add key_src (Int64.sub src_bal p.amount)
+       |> Specs_format.PairsMap.add key_dst (Int64.add dst_bal p.amount))
     initial_balances
     postings
 ;;
@@ -99,7 +99,7 @@ let check_postings (actual : Run.posting list) expected fail =
     a.source = e.source
     && a.destination = e.destination
     && a.asset = e.asset
-    && a.amount = int_of_float e.amount
+    && a.amount = Int64.of_float e.amount
   in
   let mismatch =
     n_actual <> n_expected
@@ -111,7 +111,7 @@ let check_postings (actual : Run.posting list) expected fail =
       format_posting e.source e.destination e.asset (int_of_float e.amount)
     in
     let fmt_actual (a : Run.posting) =
-      format_posting a.source a.destination a.asset a.amount
+      format_posting a.source a.destination a.asset (Int64.to_int a.amount)
     in
     let exp_lines = String.concat "\n" (List.map fmt_expected expected) in
     let got_lines = String.concat "\n" (List.map fmt_actual actual) in
@@ -123,13 +123,13 @@ let check_end_balances_exact end_balances expected fail =
     (fun (account, asset) expected_amt ->
        let actual_amt =
          Specs_format.PairsMap.find_opt (account, asset) end_balances
-         |> Option.value ~default:0
+         |> Option.value ~default:0L
        in
        if actual_amt <> expected_amt
        then
          fail
            (Printf.sprintf
-              "end balance %s %s: expected %d, got %d"
+              "end balance %s %s: expected %Ld, got %Ld"
               account
               asset
               expected_amt
@@ -137,10 +137,10 @@ let check_end_balances_exact end_balances expected fail =
     expected;
   Specs_format.PairsMap.iter
     (fun (account, asset) actual_amt ->
-       if actual_amt <> 0 && not (Specs_format.PairsMap.mem (account, asset) expected)
+       if actual_amt <> 0L && not (Specs_format.PairsMap.mem (account, asset) expected)
        then
          fail
-           (Printf.sprintf "unexpected end balance %s %s = %d" account asset actual_amt))
+           (Printf.sprintf "unexpected end balance %s %s = %Ld" account asset actual_amt))
     end_balances
 ;;
 
@@ -149,13 +149,13 @@ let check_end_balances_include end_balances expected fail =
     (fun (account, asset) expected_amt ->
        let actual_amt =
          Specs_format.PairsMap.find_opt (account, asset) end_balances
-         |> Option.value ~default:0
+         |> Option.value ~default:0L
        in
        if actual_amt <> expected_amt
        then
          fail
            (Printf.sprintf
-              "end balance %s %s: expected %d, got %d"
+              "end balance %s %s: expected %Ld, got %Ld"
               account
               asset
               expected_amt
@@ -195,12 +195,14 @@ let check_movements actual_movements expected fail =
     expected
 ;;
 
+[@@@warning "-11"]
+
 let run_assertions ~initial_balances (tc : Specs_format.test_case) result =
   let failures = ref [] in
   let fail msg = failures := msg :: !failures in
   (match result, tc.expect_error_missing_funds with
-   | Error Run.MissingFunds, Some true -> ()
-   | Error Run.MissingFunds, _ -> fail "unexpected missing funds error"
+   | Error (`Runtime Run.MissingFunds), Some true -> ()
+   | Error (`Runtime Run.MissingFunds), _ -> fail "unexpected missing funds error"
    | Ok _, Some true -> fail "expected missing funds error but script succeeded"
    | Ok postings, _ ->
      (match tc.expect_postings with
@@ -219,7 +221,9 @@ let run_assertions ~initial_balances (tc : Specs_format.test_case) result =
       | None -> ());
      (match tc.expect_movements with
       | Some expected -> check_movements (compute_movements postings) expected fail
-      | None -> ()));
+      | None -> ())
+   | Error (`Compilation _), _ -> failwith "Unexpected compilation error"
+   | Error (`Runtime _), _ -> failwith "Unexpected runtime error");
   List.rev !failures
 ;;
 
@@ -304,7 +308,7 @@ let posting_to_json (p : Run.posting) =
     [ "source", `String p.source
     ; "destination", `String p.destination
     ; "asset", `String p.asset
-    ; "amount", `Int p.amount
+    ; "amount", `Int (Int64.to_int p.amount)
     ]
 ;;
 
@@ -333,8 +337,11 @@ let cmd_run script_path =
     inputs.variables |> Option.fold ~none:Run.StringMap.empty ~some:inputs_vars_to_run
   in
   match Run.run_program ~vars ~balances ast with
-  | Error Run.MissingFunds ->
+  | Error (`Runtime Run.MissingFunds) ->
     Printf.eprintf "error: missing funds\n";
+    exit 1
+  | Error _ ->
+    Printf.eprintf "error: generic error\n";
     exit 1
   | Ok postings ->
     let json = `Assoc [ "postings", `List (List.map posting_to_json postings) ] in

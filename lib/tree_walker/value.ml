@@ -1,10 +1,10 @@
 type t =
-  | Int of int
-  | Portion of int * int
+  | Int of int64
+  | Portion of int64 * int64
   | Asset of string
   | String of string
   | Account of string
-  | Monetary of string * int
+  | Monetary of string * int64
 
 type type_err =
   { expected : string

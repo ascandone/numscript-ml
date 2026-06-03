@@ -1,9 +1,7 @@
 include module type of Run_intf
 
-type run_error = MissingFunds
-
 val run_program
   :  vars:string StringMap.t
-  -> balances:int PairsMap.t
+  -> balances:int64 PairsMap.t
   -> Syntax.Ast.program
-  -> (posting list, run_error) result
+  -> (posting list, [> `Runtime of run_error ]) result

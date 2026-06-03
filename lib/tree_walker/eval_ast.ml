@@ -1,14 +1,7 @@
 type 'asset ctx =
   { vars : (string, Value.t) Hashtbl.t
-  ; balance_lookup : string -> string -> int
+  ; balance_lookup : string -> string -> int64
   }
-
-let gcd a b =
-  let rec go a b = if b = 0 then a else go b (a mod b) in
-  go (abs a) (abs b)
-;;
-
-let lcm a b = a / gcd a b * b
 
 let rec eval_expr ctx =
   let open Syntax in
@@ -20,8 +13,8 @@ let rec eval_expr ctx =
   | Ast.ExprAccount name -> Value.Asset name
   | Ast.ExprAsset name -> Value.Asset name
   | Ast.ExprString s -> Value.String s
-  | Ast.ExprInt n -> Value.Int n
-  | Ast.ExprPerc n -> Value.Portion (n, 100)
+  | Ast.ExprInt n -> Value.Int (Int64.of_int n)
+  | Ast.ExprPerc n -> Value.Portion (Int64.of_int n, Int64.of_int 100)
   | Ast.ExprMonetaryLit (mon, amt) ->
     let mon_val = Value.expect (eval_expr ctx mon) Value.expect_asset in
     let amt_val = Value.expect (eval_expr ctx amt) Value.expect_number in
@@ -29,11 +22,11 @@ let rec eval_expr ctx =
   | Ast.ExprInfix (Ast.Add, left, right) ->
     let left_val = Value.expect (eval_expr ctx left) Value.expect_number in
     let right_val = Value.expect (eval_expr ctx right) Value.expect_number in
-    Int (left_val + right_val)
+    Int (Int64.add left_val right_val)
   | Ast.ExprInfix (Ast.Sub, left, right) ->
     let left_val = Value.expect (eval_expr ctx left) Value.expect_number in
     let right_val = Value.expect (eval_expr ctx right) Value.expect_number in
-    Int (left_val - right_val)
+    Int (Int64.add left_val right_val)
   | Ast.ExprInfix (Ast.Div, left, right) ->
     let left_val = Value.expect (eval_expr ctx left) Value.expect_number in
     let right_val = Value.expect (eval_expr ctx right) Value.expect_number in
@@ -70,14 +63,19 @@ let resolve_allotment ctx allots eval_item =
         | _ -> None)
       tagged
   in
-  let lc = List.fold_left (fun acc (_, d) -> lcm acc d) 1 fixed in
-  let sum_fixed = List.fold_left (fun acc (n, d) -> acc + (n * (lc / d))) 0 fixed in
+  let lc = List.fold_left (fun acc (_, d) -> Common.lcm acc d) 1L fixed in
+  let sum_fixed =
+    List.fold_left
+      (fun acc (n, d) -> Int64.add acc (Int64.mul n (Int64.div lc d)))
+      0L
+      fixed
+  in
   List.map
     (fun (p, x) ->
        let portion =
          match p with
          | `Fixed (n, d) -> Ast_canonical.Portion (n, d)
-         | `Remaining -> Ast_canonical.Portion (lc - sum_fixed, lc)
+         | `Remaining -> Ast_canonical.Portion (Int64.sub lc sum_fixed, lc)
        in
        portion, x)
     tagged
