@@ -1,8 +1,13 @@
 include Compiler_intf
 open Syntax
 
+type var_resolution =
+  | VarResolution_External of { typ : Program.expr_typ }
+  | VarResolution_Internal of int
+
 type ctx =
   { string_like_constants : string Stack.t
+  ; vars : (string, var_resolution) Hashtbl.t
   ; int_constants : int64 Stack.t
   ; expr_bytecode : Program.op_expr Stack.t
   ; expr_bytecode_chunks : Program.expr_chunk Stack.t
@@ -49,7 +54,16 @@ let compile_int_const ctx num =
 let rec compile_expr ctx =
   let ( let* ) = Result.bind in
   function
-  | Ast.ExprVar _ -> failwith "[TODO] impl vars"
+  | Ast.ExprVar name ->
+    let* resolution =
+      Hashtbl.find_opt ctx.vars name |> Option.to_result ~none:(UnboundVar name)
+    in
+    (match resolution with
+     | VarResolution_External { typ } ->
+       let name_idx = push_stack_idx name ctx.string_like_constants in
+       Stack.push (Program.Expr_FetchVar { typ; name_idx }) ctx.expr_bytecode;
+       Ok ()
+     | VarResolution_Internal _id -> failwith "TODO implement internal vars")
   | Ast.ExprAccount name | Ast.ExprString name | Ast.ExprAsset name ->
     (* TODO(perf) reuse constants *)
     let pool_idx = push_stack_idx name ctx.string_like_constants in
@@ -188,10 +202,22 @@ let stack_to_array_patched ~patches stack =
   |> Array.of_list
 ;;
 
+let parse_typ typ_name =
+  match typ_name with
+  | "account" -> Ok Program.ExprTyp_Account
+  | "asset" -> Ok Program.ExprTyp_Asset
+  | "string" -> Ok Program.ExprTyp_String
+  | "number" -> Ok Program.ExprTyp_Number
+  | "portion" -> Ok Program.ExprTyp_Portion
+  | "monetary" -> Ok Program.ExprTyp_Monetary
+  | _ -> Error (InvalidType typ_name)
+;;
+
 let compile_parsed (program_ast : Syntax.Ast.program) =
   let ( let* ) = Result.bind in
   let ctx : ctx =
-    { string_like_constants = Stack.create ()
+    { vars = Hashtbl.create 5
+    ; string_like_constants = Stack.create ()
     ; int_constants = Stack.create ()
     ; expr_bytecode = Stack.create ()
     ; expr_bytecode_chunks = Stack.create ()
@@ -201,6 +227,22 @@ let compile_parsed (program_ast : Syntax.Ast.program) =
     ; destination_patches = Hashtbl.create 4
     ; statements = Stack.create ()
     }
+  in
+  let* () =
+    program_ast.vars
+    |> iter_result (fun (var : Ast.var) ->
+      let* typ = parse_typ var.typ in
+      (match var.value with
+       | None ->
+         (* TODO(perf) instead of always inlining it, we should count the var occurrences,
+          and if it's >1, we should pre-fetch it once, and save it as "internal" *)
+         Hashtbl.replace ctx.vars var.name (VarResolution_External { typ })
+       | Some _ ->
+         (* TODO(perf) we can inline the var, AS LONG AS it's used exactly once AND it's pure (no balance() calls)
+            (NOTE: make sure tricky edge cases are handled, like referencing impure vars)
+         *)
+         failwith "[TODO] impl internal vars");
+      Ok ())
   in
   let* stmts_list = program_ast.statements |> iter_map (compile_stmt ctx) in
   let constant_pool : Program.constant_pool =

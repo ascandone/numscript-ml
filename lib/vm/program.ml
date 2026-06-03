@@ -40,6 +40,10 @@ type op_expr =
       { pool : [ `StringLike | `Int ]
       ; pool_idx : int
       }
+  | Expr_FetchVar of
+      { typ : expr_typ
+      ; name_idx : int
+      }
   | Expr_NumAdd
   | Expr_NumSub
   | Expr_NumNeg

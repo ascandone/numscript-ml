@@ -10,6 +10,7 @@ type stacks =
 type ctx =
   { current_asset : string
   ; balances : (string * string, int64) Hashtbl.t
+  ; vars : string StringMap.t
   ; sources : (string * int64) Dynarray.t
   ; postings : posting Queue.t
   ; program : Program.t
@@ -81,9 +82,23 @@ let rec send_to_acc ctx destination ~dest_cap =
         send_to_acc ctx destination ~dest_cap:(Int64.sub dest_cap avl_amt)))
 ;;
 
-type run_error = MissingFunds
-
 exception RunError of run_error
+
+let parse_var ctx ~typ ~name ~value =
+  match typ with
+  | Program.ExprTyp_Account | Program.ExprTyp_Asset | Program.ExprTyp_String ->
+    (* For those types, we don't need to parse anything *)
+    Stack.push value ctx.stacks.string_like
+  | Program.ExprTyp_Number ->
+    let parsed_num =
+      match Int64.of_string_opt value with
+      | None -> raise (RunError (InvalidVarSyntax { typ; value }))
+      | Some parsed_num -> parsed_num
+    in
+    Stack.push parsed_num ctx.stacks.int
+  | Program.ExprTyp_Portion -> failwith "[TODO] impl portion parsing"
+  | Program.ExprTyp_Monetary -> failwith "[TODO] impl monetary parsing"
+;;
 
 let eval_bytecode (ctx : ctx) =
   Array.iter
@@ -115,6 +130,14 @@ let eval_bytecode (ctx : ctx) =
     let l = Stack.pop ctx.stacks.int in
     let r = Stack.pop ctx.stacks.int in
     Stack.push (l, r) ctx.stacks.portion
+  | Program.Expr_FetchVar { typ; name_idx } ->
+    let name = Stack.pop ctx.stacks.string_like in
+    let value =
+      match StringMap.find_opt name ctx.vars with
+      | None -> raise (RunError (UnboundVar name))
+      | Some value -> value
+    in
+    parse_var ctx ~typ ~name ~value
 ;;
 
 let eval_expr_by_idx ctx expr_idx ~stack =
@@ -209,7 +232,7 @@ let eval_statement ctx = function
   | Program.Stmt_FnSetTxMeta -> failwith "TODO fn"
 ;;
 
-let run_program ~vars:_ ~balances (program : Program.t) =
+let run_compiled ~vars ~balances (program : Program.t) =
   let empty_vm : stacks =
     { portion = Stack.create ()
     ; monetary = Stack.create ()
@@ -220,6 +243,7 @@ let run_program ~vars:_ ~balances (program : Program.t) =
   let run_ctx : ctx =
     { current_asset = ""
     ; balances = PairsMap.to_seq balances |> Hashtbl.of_seq
+    ; vars
     ; sources = Dynarray.create ()
     ; postings = Queue.create ()
     ; program
@@ -230,4 +254,15 @@ let run_program ~vars:_ ~balances (program : Program.t) =
   match program.statements |> Array.iter (eval_statement run_ctx) with
   | exception RunError e -> Error e
   | () -> Ok (run_ctx.postings |> Queue.to_seq |> List.of_seq)
+;;
+
+let run_program ~vars ~balances program =
+  let ( let* ) = Result.bind in
+  let* parsed_program =
+    Compiler.compile_parsed program |> Result.map_error (fun e -> `Compilation e)
+  in
+  let* postings =
+    run_compiled ~vars ~balances parsed_program |> Result.map_error (fun e -> `Runtime e)
+  in
+  Ok postings
 ;;

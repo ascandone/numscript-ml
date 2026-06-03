@@ -14,6 +14,14 @@ type 't pairs_map = 't PairsMap.t
 
 module StringMap = Map.Make (String)
 
+type run_error =
+  | MissingFunds
+  | UnboundVar of string
+  | InvalidVarSyntax of
+      { typ : Program.expr_typ
+      ; value : string
+      }
+
 type posting =
   { source : string
   ; destination : string
