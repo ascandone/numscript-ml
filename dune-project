@@ -24,7 +24,7 @@
  (name numscript-ml)
  (synopsis "A short synopsis")
  (description "A longer description")
- (depends ocaml menhir)
+ (depends ocaml menhir yojson ppx_deriving_yojson)
  (tags
   ("add topics" "to describe" your project)))
 
