@@ -31,13 +31,13 @@ type expr_typ =
   | ExprTyp_String
   | ExprTyp_Account
   | ExprTyp_Asset
-(* | ExprTyp_Monetary
-  | ExprTyp_Portion *)
+  | ExprTyp_Monetary
+  | ExprTyp_Portion
 
 type op_expr =
   (* TODO account concat (for account literal) *)
   | Expr_FetchConst of
-      { typ : expr_typ
+      { pool : [ `StringLike | `Int ]
       ; pool_idx : int
       }
   | Expr_NumAdd

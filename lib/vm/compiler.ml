@@ -36,12 +36,6 @@ let push_stack_idx value stack =
   index
 ;;
 
-let compile_string_like_const ctx ~typ value =
-  (* TODO(perf) reuse constants *)
-  let pool_idx = push_stack_idx value ctx.string_like_constants in
-  Stack.push (Program.Expr_FetchConst { typ; pool_idx }) ctx.expr_bytecode
-;;
-
 let compile_int_const ctx num =
   let num =
     (* TODO should the syntax have int64 or int nums? *)
@@ -49,23 +43,19 @@ let compile_int_const ctx num =
   in
   (* TODO(perf) reuse constants *)
   let pool_idx = push_stack_idx num ctx.int_constants in
-  Stack.push
-    (Program.Expr_FetchConst { typ = Program.ExprTyp_Number; pool_idx })
-    ctx.expr_bytecode
+  Stack.push (Program.Expr_FetchConst { pool = `Int; pool_idx }) ctx.expr_bytecode
 ;;
 
 let rec compile_expr ctx =
   let ( let* ) = Result.bind in
   function
   | Ast.ExprVar _ -> failwith "[TODO] impl vars"
-  | Ast.ExprAccount name ->
-    compile_string_like_const ctx name ~typ:Program.ExprTyp_Account;
-    Ok ()
-  | Ast.ExprString name ->
-    compile_string_like_const ctx name ~typ:Program.ExprTyp_String;
-    Ok ()
-  | Ast.ExprAsset name ->
-    compile_string_like_const ctx name ~typ:Program.ExprTyp_Asset;
+  | Ast.ExprAccount name | Ast.ExprString name | Ast.ExprAsset name ->
+    (* TODO(perf) reuse constants *)
+    let pool_idx = push_stack_idx name ctx.string_like_constants in
+    Stack.push
+      (Program.Expr_FetchConst { pool = `StringLike; pool_idx })
+      ctx.expr_bytecode;
     Ok ()
   | Ast.ExprPerc num ->
     (* TODO we need to take care of the comma as well *)
