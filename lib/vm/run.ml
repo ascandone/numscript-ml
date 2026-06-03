@@ -15,7 +15,7 @@ type ctx =
   ; postings : posting Queue.t
   ; program : Program.t
   ; stacks : stacks
-  ; mutable pc : int
+  ; pc : int ref
   }
 
 let min_opt n = function
@@ -156,8 +156,8 @@ let eval_expr_by_idx ctx expr_idx ~stack =
 ;;
 
 let rec pull_source ?cap ctx =
-  let op = ctx.program.sources.(ctx.pc) in
-  ctx.pc <- ctx.pc + 1;
+  let op = ctx.program.sources.(!(ctx.pc)) in
+  incr ctx.pc;
   match op with
   | Program.Src_Account { account_idx } ->
     (* -- parse *)
@@ -175,7 +175,7 @@ let rec pull_source ?cap ctx =
     let total_pulled = ref 0L in
     let cap_left_ref = ref cap in
     let should_keep_looping () =
-      ctx.pc < end_idx
+      !(ctx.pc) < end_idx
       &&
       match !cap_left_ref with
       | None -> true
@@ -189,7 +189,7 @@ let rec pull_source ?cap ctx =
       | Some previous_cap -> cap_left_ref := Some (Int64.sub previous_cap pulled)
     done;
     (* We make sure we deplete the inorder even if shortcircuited: *)
-    ctx.pc <- end_idx;
+    ctx.pc := end_idx;
     !total_pulled
 
 and pull_source_amt ctx ~needed_amt =
@@ -198,34 +198,40 @@ and pull_source_amt ctx ~needed_amt =
   got_amt
 ;;
 
-let send_to_dest ctx =
-  let op = ctx.program.destinations.(ctx.pc) in
-  ctx.pc <- ctx.pc + 1;
+let send_to_dest ctx ~cap =
+  let op = ctx.program.destinations.(!(ctx.pc)) in
+  incr ctx.pc;
   match op with
-  | Program.Dest_Account _ -> ()
+  | Program.Dest_Account { account_idx } ->
+    let account = eval_expr_by_idx ctx account_idx ~stack:ctx.stacks.string_like in
+    send_to_acc ctx account ~dest_cap:cap;
+    ()
 ;;
 
 let eval_statement ctx = function
   | Program.Stmt_SendAll { asset_expr_idx; source_idx; destination_idx } ->
-    let _asset = eval_expr_by_idx ctx asset_expr_idx ~stack:ctx.stacks.string_like in
+    let asset = eval_expr_by_idx ctx asset_expr_idx ~stack:ctx.stacks.string_like in
+    let ctx = { ctx with current_asset = asset } in
     (* TODO update ctx with asset *)
-    ctx.pc <- source_idx;
-    let _pulled = pull_source ctx in
-    ctx.pc <- destination_idx;
-    send_to_dest ctx
+    ctx.pc := source_idx;
+    let pulled = pull_source ctx in
+    ctx.pc := destination_idx;
+    send_to_dest ctx ~cap:pulled
   | Program.Stmt_Send { monetary_expr_idx; source_idx; destination_idx } ->
-    let _asset, needed_amt =
+    let asset, needed_amt =
       eval_expr_by_idx ctx monetary_expr_idx ~stack:ctx.stacks.monetary
     in
+    let ctx = { ctx with current_asset = asset } in
     (* TODO update ctx with asset *)
-    ctx.pc <- source_idx;
-    let _pulled = pull_source_amt ~needed_amt ctx in
-    ctx.pc <- destination_idx;
-    send_to_dest ctx
+    ctx.pc := source_idx;
+    let pulled = pull_source_amt ~needed_amt ctx in
+    ctx.pc := destination_idx;
+    send_to_dest ctx ~cap:pulled
   | Program.Stmt_Save { monetary_expr_idx; account_expr_idx } ->
-    let _asset, _needed_amt =
+    let asset, _needed_amt =
       eval_expr_by_idx ctx monetary_expr_idx ~stack:ctx.stacks.monetary
     in
+    let ctx = { ctx with current_asset = asset } in
     let _account = eval_expr_by_idx ctx account_expr_idx ~stack:ctx.stacks.string_like in
     failwith "TODO save"
   | Program.Stmt_FnSetAccountMeta -> failwith "TODO fn"
@@ -248,7 +254,7 @@ let run_compiled ~vars ~balances (program : Program.t) =
     ; postings = Queue.create ()
     ; program
     ; stacks = empty_vm
-    ; pc = 0
+    ; pc = ref 0
     }
   in
   match program.statements |> Array.iter (eval_statement run_ctx) with
