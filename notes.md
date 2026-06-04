@@ -1,5 +1,32 @@
 ## Encoding
-TODO
+There are 3 distincts (but related) data formats:
+1. The serialization format we'll use to store scripts in db or send them around as raft payloads. It explicitly lists location of tables.
+2. The deserialized format, expressed as golang data structure. This'll strip away headers used to index tables and load them directly as slices. In order to avoid unnecessary allocations, bytecode operations will be expressed via stack-allocated go slices (no heap-allocated values like strings or recursive data). For example, data segment will be loaded in different pools, but values won't be inlined in instructions.
+3. The hydrated vm instance.
+
+Serialization format:
+
+TODO check format after we finish design all ops, check padding, etc
+```
+[? bytes] magic header ("num")
+[? bytes] padding
+
+[? bytes] index,len of data segment
+[? bytes] index,len of data table
+[? bytes] index,len of expr segmnet
+[? bytes] index,len of sources table
+[? bytes] index,len of dests table
+---
+
+... contiguous (padded) data as indexed by headers
+
+```
+
+TODO is data segment aligned? if so, should the len be %4? (same for other semgnets)
+
+
+TODO specify exact encoding
+
 
 ## Issue: allowing re-using previously allocated vm instances
 TODO
