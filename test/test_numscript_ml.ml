@@ -153,6 +153,41 @@ let vm_tests =
                  ; { start_idx = 8; size = 1 }
                 |]
             } )
+  ; ( "extern vars"
+    , `Quick
+    , fun () ->
+        test_compiled
+          ~source:
+            {|
+    vars {
+      monetary $m
+      account $src
+    }
+
+    send $m (
+      source = $src
+      destination = @dest
+    )
+  |}
+          ~expected:
+            { constant_pool = { string_like = [| "m"; "src"; "dest" |]; int = [||] }
+            ; statements =
+                [| Stmt_Send
+                     { monetary_expr_idx = 0; source_idx = 0; destination_idx = 0 }
+                |]
+            ; sources = [| Src_Account { account_expr_idx = 1 } |]
+            ; destinations = [| Dest_Account { account_expr_idx = 2 } |]
+            ; expr_bytecode =
+                [| Expr_FetchVar { typ = ExprTyp_Monetary; name_idx = 0 }
+                 ; Expr_FetchVar { typ = ExprTyp_Account; name_idx = 1 }
+                 ; Expr_FetchConst { pool = `StringLike; pool_idx = 2 }
+                |]
+            ; expr_chunks =
+                [| { start_idx = 0; size = 1 }
+                 ; { start_idx = 1; size = 1 }
+                 ; { start_idx = 2; size = 1 }
+                |]
+            } )
   ]
 ;;
 
