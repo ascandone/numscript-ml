@@ -156,6 +156,8 @@ let eval_expr_by_idx ctx expr_idx ~stack =
   item
 ;;
 
+let int64_to_non_neg = max 0L
+
 let rec pull_source ?cap ctx =
   let op = ctx.program.sources.(!(ctx.pc)) in
   incr ctx.pc;
@@ -166,8 +168,8 @@ let rec pull_source ?cap ctx =
     (* -- parse *)
     let name = eval_expr_by_idx ctx account_expr_idx ~stack:ctx.stacks.string_like in
     (* -- eval *)
-    let acc_balance = get_account_balance ctx name in
-    send ctx name (min_opt (max 0L acc_balance) cap)
+    let acc_balance = int64_to_non_neg @@ get_account_balance ctx name in
+    send ctx name (min_opt acc_balance cap)
   | Program.Src_AccountUnbounded { account_expr_idx } ->
     (* -- parse *)
     let name = eval_expr_by_idx ctx account_expr_idx ~stack:ctx.stacks.string_like in
@@ -186,12 +188,14 @@ let rec pull_source ?cap ctx =
     let max_overdraft_asset, max_overdraft_amount =
       eval_expr_by_idx ctx overdraft_expr_idx ~stack:ctx.stacks.monetary
     in
+    let max_overdraft_amount = int64_to_non_neg max_overdraft_amount in
     (* -- eval *)
     let acc_balance = get_account_balance ctx name in
     let amt =
       match cap with
-      | None -> max 0L (Int64.add acc_balance (max 0L max_overdraft_amount))
-      | Some cap -> min cap (max 0L (Int64.add acc_balance (max 0L max_overdraft_amount)))
+      | None -> int64_to_non_neg (Int64.add acc_balance max_overdraft_amount)
+      | Some cap ->
+        min cap (int64_to_non_neg (Int64.add acc_balance max_overdraft_amount))
     in
     send ctx name amt
   | Program.Src_Max { monetary_expr_idx } ->
@@ -201,7 +205,7 @@ let rec pull_source ?cap ctx =
     in
     (* TODO assert asset is current asset  *)
     (* -- eval *)
-    pull_source ~cap:(max 0L (min_opt max_cap cap)) ctx
+    pull_source ~cap:(int64_to_non_neg (min_opt max_cap cap)) ctx
   | Program.Src_Inorder { end_idx } ->
     let total_pulled = ref 0L in
     let cap_left_ref = ref cap in
