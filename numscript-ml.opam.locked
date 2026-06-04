@@ -1,0 +1,114 @@
+opam-version: "2.0"
+name: "numscript-ml"
+version: "dev"
+synopsis: "A short synopsis"
+description: "A longer description"
+maintainer: "Maintainer Name <maintainer@example.com>"
+authors: "Author Name <author@example.com>"
+license: "ISC"
+tags: ["add topics" "to describe" "your" "project"]
+homepage: "https://github.com/username/reponame"
+doc: "https://url/to/documentation"
+bug-reports: "https://github.com/username/reponame/issues"
+depends: [
+  "astring" {= "0.8.5" & with-dev-setup}
+  "base" {= "v0.17.3" & with-test}
+  "base-bigarray" {= "base"}
+  "base-domains" {= "base"}
+  "base-effects" {= "base"}
+  "base-nnp" {= "base"}
+  "base-threads" {= "base"}
+  "base-unix" {= "base"}
+  "camlp-streams" {= "5.0.1" & with-dev-setup}
+  "chrome-trace" {= "3.23.1" & with-dev-setup}
+  "cmdliner" {= "2.1.1" & with-dev-setup}
+  "cppo" {= "1.8.0"}
+  "csexp" {= "1.5.2" & with-test}
+  "dune" {= "3.23.1"}
+  "dune-build-info" {= "3.23.1" & with-dev-setup}
+  "dune-configurator" {= "3.23.1" & with-test}
+  "dune-rpc" {= "3.23.1" & with-dev-setup}
+  "dyn" {= "3.23.1" & with-dev-setup}
+  "either" {= "1.0.0" & with-dev-setup}
+  "fiber" {= "3.7.0" & with-dev-setup}
+  "fix" {= "20250919" & with-dev-setup}
+  "fpath" {= "0.7.3" & with-dev-setup}
+  "fs-io" {= "3.23.1" & with-dev-setup}
+  "jane-street-headers" {= "v0.17.0" & with-test}
+  "jsonrpc" {= "1.26.0" & with-dev-setup}
+  "jst-config" {= "v0.17.0" & with-test}
+  "lsp" {= "1.26.0" & with-dev-setup}
+  "menhir" {= "20260209"}
+  "menhirCST" {= "20260209"}
+  "menhirGLR" {= "20260209"}
+  "menhirLib" {= "20260209"}
+  "menhirSdk" {= "20260209"}
+  "merlin-lib" {= "5.7.1-504" & with-dev-setup}
+  "ocaml" {= "5.4.1"}
+  "ocaml-base-compiler" {= "5.4.1"}
+  "ocaml-compiler" {= "5.4.1"}
+  "ocaml-compiler-libs" {= "v0.17.0"}
+  "ocaml-config" {= "3"}
+  "ocaml-index" {= "5.7.1-504" & with-dev-setup}
+  "ocaml-lsp-server" {= "1.26.0" & with-dev-setup}
+  "ocaml-options-vanilla" {= "1"}
+  "ocaml-version" {= "4.1.1" & with-dev-setup}
+  "ocaml_intrinsics_kernel" {= "v0.17.2" & with-test}
+  "ocamlbuild" {= "0.16.1" & with-dev-setup}
+  "ocamlc-loc" {= "3.23.1" & with-dev-setup}
+  "ocamlfind" {= "1.9.8"}
+  "ocamlformat" {= "0.29.0" & with-dev-setup}
+  "ocamlformat-lib" {= "0.29.0" & with-dev-setup}
+  "ocamlformat-rpc-lib" {= "0.29.0" & with-dev-setup}
+  "ocp-indent" {= "1.9.0" & with-dev-setup}
+  "ordering" {= "3.23.1" & with-dev-setup}
+  "pp" {= "2.0.0" & with-dev-setup}
+  "ppx_assert" {= "v0.17.0" & with-test}
+  "ppx_base" {= "v0.17.0" & with-test}
+  "ppx_cold" {= "v0.17.0" & with-test}
+  "ppx_compare" {= "v0.17.0" & with-test}
+  "ppx_derivers" {= "1.2.1"}
+  "ppx_deriving" {= "6.1.1"}
+  "ppx_deriving_yojson" {= "3.10.0"}
+  "ppx_enumerate" {= "v0.17.0" & with-test}
+  "ppx_expect" {= "v0.17.3" & with-test}
+  "ppx_globalize" {= "v0.17.2" & with-test}
+  "ppx_hash" {= "v0.17.0" & with-test}
+  "ppx_here" {= "v0.17.0" & with-test}
+  "ppx_inline_test" {= "v0.17.1" & with-test}
+  "ppx_optcomp" {= "v0.17.1" & with-test}
+  "ppx_sexp_conv" {= "v0.17.1" & with-test}
+  "ppx_yojson_conv_lib" {= "v0.17.0" & with-dev-setup}
+  "ppxlib" {= "0.38.0"}
+  "ppxlib_jane" {= "v0.17.4" & with-test}
+  "re" {= "1.14.0" & with-dev-setup}
+  "sexplib0" {= "v0.17.0"}
+  "spawn" {= "v0.17.0" & with-dev-setup}
+  "stdio" {= "v0.17.0" & with-test}
+  "stdlib-shims" {= "0.3.0"}
+  "stdune" {= "3.23.1" & with-dev-setup}
+  "time_now" {= "v0.17.0" & with-test}
+  "top-closure" {= "3.23.1" & with-dev-setup}
+  "topkg" {= "1.1.1" & with-dev-setup}
+  "uucp" {= "17.0.0" & with-dev-setup}
+  "uuseg" {= "17.0.0" & with-dev-setup}
+  "uutf" {= "1.0.4" & with-dev-setup}
+  "xdg" {= "3.23.1" & with-dev-setup}
+  "yojson" {= "3.0.0"}
+]
+build: [
+  ["dune" "subst"] {dev}
+  [
+    "dune"
+    "build"
+    "-p"
+    name
+    "-j"
+    jobs
+    "@install"
+    "@runtest" {with-test}
+    "@doc" {with-doc}
+  ]
+]
+dev-repo: "git+https://github.com/username/reponame.git"
+x-maintenance-intent: ["(latest)"]
