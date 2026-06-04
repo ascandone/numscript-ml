@@ -2,12 +2,12 @@ include Compiler_intf
 open Syntax
 
 type var_resolution =
-  | VarResolution_External of { typ : Program.expr_typ }
+  | VarResolution_External
   | VarResolution_Internal of int
 
 type ctx =
   { string_like_constants : string Stack.t
-  ; vars : (string, var_resolution) Hashtbl.t
+  ; vars : (string, var_resolution * Program.expr_typ) Hashtbl.t
   ; int_constants : int64 Stack.t
   ; expr_bytecode : Program.op_expr Stack.t
   ; expr_bytecode_chunks : Program.expr_chunk Stack.t
@@ -16,16 +16,8 @@ type ctx =
   ; destinations : Program.op_dest Stack.t
   ; destination_patches : (int, Program.op_dest) Hashtbl.t
   ; statements : Program.op_stmt Stack.t
+  ; next_var_uid : int ref
   }
-
-let rec iter_map f = function
-  | [] -> Ok []
-  | hd :: tl ->
-    let ( let* ) = Result.bind in
-    let* hd = f hd in
-    let* tl = iter_map f tl in
-    Ok (hd :: tl)
-;;
 
 let rec iter_result f = function
   | [] -> Ok ()
@@ -55,15 +47,17 @@ let rec compile_expr ctx =
   let ( let* ) = Result.bind in
   function
   | Ast.ExprVar name ->
-    let* resolution =
+    let* resolution, typ =
       Hashtbl.find_opt ctx.vars name |> Option.to_result ~none:(UnboundVar name)
     in
     (match resolution with
-     | VarResolution_External { typ } ->
+     | VarResolution_External ->
        let name_idx = push_stack_idx name ctx.string_like_constants in
        Stack.push (Program.Expr_FetchVar { typ; name_idx }) ctx.expr_bytecode;
        Ok ()
-     | VarResolution_Internal _id -> failwith "TODO implement internal vars")
+     | VarResolution_Internal uid ->
+       Stack.push (Program.Expr_GetLocal { typ; uid }) ctx.expr_bytecode;
+       Ok ())
   | Ast.ExprAccount name | Ast.ExprString name | Ast.ExprAsset name ->
     (* TODO(perf) reuse constants *)
     let pool_idx = push_stack_idx name ctx.string_like_constants in
@@ -213,6 +207,29 @@ let parse_typ typ_name =
   | _ -> Error (InvalidType typ_name)
 ;;
 
+let compile_var ctx (var : Ast.var) =
+  let ( let* ) = Result.bind in
+  let* typ = parse_typ var.typ in
+  let* binding =
+    match var.value with
+    | None ->
+      (* TODO(perf) instead of always inlining it, we should count the var occurrences,
+          and if it's >1, we should pre-fetch it once, and save it as "internal" *)
+      Ok VarResolution_External
+    | Some expr ->
+      (* TODO(perf) we can inline the var, AS LONG AS it's used exactly once AND it's pure (no balance() calls)
+            (NOTE: make sure tricky edge cases are handled, like referencing impure vars)
+         *)
+      let var_uid = !(ctx.next_var_uid) in
+      incr ctx.next_var_uid;
+      let* expr_idx = compile_expr_chunk ctx expr in
+      Stack.push (Program.Stmt_SetLocal { var_uid; typ; expr_idx }) ctx.statements;
+      Ok (VarResolution_Internal var_uid)
+  in
+  Hashtbl.replace ctx.vars var.name (binding, typ);
+  Ok ()
+;;
+
 let compile_parsed (program_ast : Syntax.Ast.program) =
   let ( let* ) = Result.bind in
   let ctx : ctx =
@@ -226,25 +243,17 @@ let compile_parsed (program_ast : Syntax.Ast.program) =
     ; destinations = Stack.create ()
     ; destination_patches = Hashtbl.create 4
     ; statements = Stack.create ()
+    ; next_var_uid = ref 0
     }
   in
+  let* () = program_ast.vars |> iter_result (compile_var ctx) in
   let* () =
-    program_ast.vars
-    |> iter_result (fun (var : Ast.var) ->
-      let* typ = parse_typ var.typ in
-      (match var.value with
-       | None ->
-         (* TODO(perf) instead of always inlining it, we should count the var occurrences,
-          and if it's >1, we should pre-fetch it once, and save it as "internal" *)
-         Hashtbl.replace ctx.vars var.name (VarResolution_External { typ })
-       | Some _ ->
-         (* TODO(perf) we can inline the var, AS LONG AS it's used exactly once AND it's pure (no balance() calls)
-            (NOTE: make sure tricky edge cases are handled, like referencing impure vars)
-         *)
-         failwith "[TODO] impl internal vars");
+    program_ast.statements
+    |> iter_result (fun stm ->
+      let* out = compile_stmt ctx stm in
+      Stack.push out ctx.statements;
       Ok ())
   in
-  let* stmts_list = program_ast.statements |> iter_map (compile_stmt ctx) in
   let constant_pool : Program.constant_pool =
     { string_like = stack_to_array ctx.string_like_constants
     ; int = stack_to_array ctx.int_constants
@@ -252,7 +261,7 @@ let compile_parsed (program_ast : Syntax.Ast.program) =
   in
   Ok
     { Program.constant_pool
-    ; statements = Array.of_list stmts_list
+    ; statements = stack_to_array ctx.statements
     ; sources = stack_to_array_patched ~patches:ctx.source_patches ctx.sources
     ; destinations =
         stack_to_array_patched ~patches:ctx.destination_patches ctx.destinations
@@ -414,6 +423,43 @@ let%expect_test "extern vars" =
       expr_chunks =
       [|{ start_idx = 0; size = 1 }; { start_idx = 1; size = 1 };
         { start_idx = 2; size = 1 }|]
+      }
+    |}]
+;;
+
+let%expect_test "internal vars" =
+  test_compiled
+    {|
+    vars {
+      account $src_acc = @acc
+      account $dest_acc = $src_acc
+    }
+
+    send [USD/2 *] (
+      source = $src_acc
+      destination = $dest_acc
+    )
+
+  |};
+  [%expect
+    {|
+    { constant_pool = { string_like = [|"acc"; "USD/2"|]; int = [||] };
+      statements =
+      [|Stmt_SetLocal {var_uid = 0; typ = ExprTyp_Account; expr_idx = 0};
+        Stmt_SetLocal {var_uid = 1; typ = ExprTyp_Account; expr_idx = 1};
+        Stmt_SendAll {asset_expr_idx = 2; source_idx = 0; destination_idx = 0}|];
+      sources = [|Src_Account {account_expr_idx = 3}|];
+      destinations = [|Dest_Account {account_expr_idx = 4}|];
+      expr_bytecode =
+      [|Expr_FetchConst {pool = `StringLike; pool_idx = 0};
+        Expr_GetLocal {typ = ExprTyp_Account; uid = 0};
+        Expr_FetchConst {pool = `StringLike; pool_idx = 1};
+        Expr_GetLocal {typ = ExprTyp_Account; uid = 0};
+        Expr_GetLocal {typ = ExprTyp_Account; uid = 1}|];
+      expr_chunks =
+      [|{ start_idx = 0; size = 1 }; { start_idx = 1; size = 1 };
+        { start_idx = 2; size = 1 }; { start_idx = 3; size = 1 };
+        { start_idx = 4; size = 1 }|]
       }
     |}]
 ;;

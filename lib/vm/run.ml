@@ -111,6 +111,7 @@ let eval_bytecode (ctx : ctx) =
      | `Int ->
        let str = ctx.program.constant_pool.int.(pool_idx) in
        Stack.push str ctx.stacks.int)
+  | Program.Expr_GetLocal _ -> failwith "[TODO] impl get local"
   | Program.Expr_NumNeg ->
     let arg = Stack.pop ctx.stacks.int in
     Stack.push (Int64.neg arg) ctx.stacks.int
@@ -236,6 +237,7 @@ let eval_statement ctx = function
     let ctx = { ctx with current_asset = asset } in
     let _account = eval_expr_by_idx ctx account_expr_idx ~stack:ctx.stacks.string_like in
     failwith "TODO save"
+  | Program.Stmt_SetLocal _ -> failwith "TODO setVar"
   | Program.Stmt_FnSetAccountMeta -> failwith "TODO fn"
   | Program.Stmt_FnSetTxMeta -> failwith "TODO fn"
 ;;
