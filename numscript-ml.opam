@@ -12,9 +12,13 @@ bug-reports: "https://github.com/username/reponame/issues"
 depends: [
   "dune" {>= "3.22"}
   "ocaml"
-  "menhir"
+  "menhir" {>= "20180523"}
   "yojson"
   "ppx_deriving_yojson"
+  "ppx_deriving"
+  "ppx_expect" {with-test}
+  "ocamlformat" {with-dev-setup}
+  "ocaml-lsp-server" {with-dev-setup}
   "odoc" {with-doc}
 ]
 build: [
