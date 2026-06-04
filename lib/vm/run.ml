@@ -180,6 +180,20 @@ let rec pull_source ?cap ctx =
       | Some cap -> cap
     in
     send ctx name amt
+  | Program.Src_AccountBoundedOverdraft { account_expr_idx; overdraft_expr_idx } ->
+    (* -- parse *)
+    let name = eval_expr_by_idx ctx account_expr_idx ~stack:ctx.stacks.string_like in
+    let max_overdraft_asset, max_overdraft_amount =
+      eval_expr_by_idx ctx overdraft_expr_idx ~stack:ctx.stacks.monetary
+    in
+    (* -- eval *)
+    let acc_balance = get_account_balance ctx name in
+    let amt =
+      match cap with
+      | None -> max 0L (Int64.add acc_balance (max 0L max_overdraft_amount))
+      | Some cap -> min cap (max 0L (Int64.add acc_balance (max 0L max_overdraft_amount)))
+    in
+    send ctx name amt
   | Program.Src_Max { monetary_expr_idx } ->
     (* -- parse *)
     let _asset, max_cap =

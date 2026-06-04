@@ -124,9 +124,12 @@ let rec compile_source ctx =
     Stack.push (Program.Src_AccountUnbounded { account_expr_idx }) ctx.sources;
     Ok ()
   | Ast.SrcAccountOverdraft { account; max_overdraft = Some overdraft_expr } ->
-    let* _account_expr_idx = compile_expr_chunk ctx account in
-    let* _overdraft_expr_idx = compile_expr_chunk ctx overdraft_expr in
-    failwith "[TODO] compile bounded overdradt"
+    let* account_expr_idx = compile_expr_chunk ctx account in
+    let* overdraft_expr_idx = compile_expr_chunk ctx overdraft_expr in
+    Stack.push
+      (Program.Src_AccountBoundedOverdraft { account_expr_idx; overdraft_expr_idx })
+      ctx.sources;
+    Ok ()
   | Ast.SrcMax (cap, sub_source) ->
     let* monetary_expr_idx = compile_expr_chunk ctx cap in
     Stack.push (Program.Src_Max { monetary_expr_idx }) ctx.sources;
