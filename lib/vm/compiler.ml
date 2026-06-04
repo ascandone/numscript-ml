@@ -152,7 +152,7 @@ let rec compile_destination ctx =
     let* account_expr_idx = compile_expr_chunk ctx acc_name_expr in
     Stack.push (Program.Dest_Account { account_expr_idx }) ctx.destinations;
     Ok ()
-  | _ -> failwith "TODO dest"
+  | Ast.DestAllotment _ | Ast.DestInorder _ -> failwith "TODO dest"
 ;;
 
 let compile_stmt ctx =
