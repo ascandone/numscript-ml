@@ -1,3 +1,5 @@
 (library
  (name vm)
- (libraries syntax))
+ (libraries syntax)
+ (preprocess
+  (pps ppx_deriving.show ppx_deriving.eq)))

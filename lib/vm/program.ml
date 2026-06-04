@@ -5,8 +5,10 @@ type op_source =
   | Src_Account of { account_idx : int }
   | Src_Inorder of { end_idx : int }
   | Src_Max of { monetary_idx : int }
+[@@deriving show { with_path = false }, eq]
 
 type op_dest = Dest_Account of { account_idx : int }
+[@@deriving show { with_path = false }, eq]
 
 type op_stmt =
   | Stmt_Send of
@@ -25,6 +27,7 @@ type op_stmt =
       }
   | Stmt_FnSetTxMeta
   | Stmt_FnSetAccountMeta
+[@@deriving show { with_path = false }, eq]
 
 type expr_typ =
   | ExprTyp_Number
@@ -33,6 +36,7 @@ type expr_typ =
   | ExprTyp_Asset
   | ExprTyp_Monetary
   | ExprTyp_Portion
+[@@deriving show { with_path = false }, eq]
 
 type op_expr =
   (* TODO account concat (for account literal) *)
@@ -49,23 +53,27 @@ type op_expr =
   | Expr_NumNeg
   | Expr_MkMonetary
   | Expr_MkPortion
+[@@deriving show { with_path = false }, eq]
 
 type monetary_const =
   { asset_idx : int
   ; monetary_idx : int
   }
+[@@deriving show { with_path = false }, eq]
 
 (* TODO double check we can share the same pool for asset, string, account *)
 type constant_pool =
   { string_like : string array
   ; int : int64 array
   }
+[@@deriving show { with_path = false }, eq]
 
 (** The portion of bytecode representing a single expr. Basically a slice of the expr_bytecode array *)
 type expr_chunk =
   { start_idx : int
   ; size : int
   }
+[@@deriving show { with_path = false }, eq]
 
 (** the serialized repr of a compiled program.
   NOT the runtime machine *)
@@ -77,3 +85,4 @@ type t =
   ; expr_bytecode : op_expr array
   ; expr_chunks : expr_chunk array
   }
+[@@deriving show { with_path = false }, eq]

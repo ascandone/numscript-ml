@@ -1,3 +1,5 @@
 (test
  (name test_numscript_ml)
- (libraries numscript))
+ (libraries numscript alcotest)
+ (preprocess
+  (pps ppx_deriving.show ppx_deriving.eq)))
