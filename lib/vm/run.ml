@@ -159,15 +159,17 @@ let rec pull_source ?cap ctx =
   let op = ctx.program.sources.(!(ctx.pc)) in
   incr ctx.pc;
   match op with
-  | Program.Src_Account { account_idx } ->
+  | Program.Src_Account { account_expr_idx } ->
     (* -- parse *)
-    let name = eval_expr_by_idx ctx account_idx ~stack:ctx.stacks.string_like in
+    let name = eval_expr_by_idx ctx account_expr_idx ~stack:ctx.stacks.string_like in
     (* -- eval *)
     let acc_balance = get_account_balance ctx name in
     send ctx name (min_opt (max 0L acc_balance) cap)
-  | Program.Src_Max { monetary_idx } ->
+  | Program.Src_Max { monetary_expr_idx } ->
     (* -- parse *)
-    let _asset, max_cap = eval_expr_by_idx ctx monetary_idx ~stack:ctx.stacks.monetary in
+    let _asset, max_cap =
+      eval_expr_by_idx ctx monetary_expr_idx ~stack:ctx.stacks.monetary
+    in
     (* TODO assert asset is current asset  *)
     (* -- eval *)
     pull_source ~cap:(max 0L (min_opt max_cap cap)) ctx
@@ -202,8 +204,8 @@ let send_to_dest ctx ~cap =
   let op = ctx.program.destinations.(!(ctx.pc)) in
   incr ctx.pc;
   match op with
-  | Program.Dest_Account { account_idx } ->
-    let account = eval_expr_by_idx ctx account_idx ~stack:ctx.stacks.string_like in
+  | Program.Dest_Account { account_expr_idx } ->
+    let account = eval_expr_by_idx ctx account_expr_idx ~stack:ctx.stacks.string_like in
     send_to_acc ctx account ~dest_cap:cap;
     ()
 ;;

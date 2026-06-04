@@ -2,12 +2,12 @@
 
 (** the serialized view of bytecode representing the numscript constructs (not exprs) *)
 type op_source =
-  | Src_Account of { account_idx : int }
+  | Src_Account of { account_expr_idx : int }
   | Src_Inorder of { end_idx : int }
-  | Src_Max of { monetary_idx : int }
+  | Src_Max of { monetary_expr_idx : int }
 [@@deriving show { with_path = false }, eq]
 
-type op_dest = Dest_Account of { account_idx : int }
+type op_dest = Dest_Account of { account_expr_idx : int }
 [@@deriving show { with_path = false }, eq]
 
 type op_stmt =

@@ -122,12 +122,12 @@ let rec compile_source ctx =
   let ( let* ) = Result.bind in
   function
   | Ast.SrcAccount acc_name_expr ->
-    let* account_idx = compile_expr_chunk ctx acc_name_expr in
-    Stack.push (Program.Src_Account { account_idx }) ctx.sources;
+    let* account_expr_idx = compile_expr_chunk ctx acc_name_expr in
+    Stack.push (Program.Src_Account { account_expr_idx }) ctx.sources;
     Ok ()
   | Ast.SrcMax (cap, sub_source) ->
-    let* monetary_idx = compile_expr_chunk ctx cap in
-    Stack.push (Program.Src_Max { monetary_idx }) ctx.sources;
+    let* monetary_expr_idx = compile_expr_chunk ctx cap in
+    Stack.push (Program.Src_Max { monetary_expr_idx }) ctx.sources;
     let* () = compile_source ctx sub_source in
     Ok ()
   | Ast.SrcInorder sources ->
@@ -149,8 +149,8 @@ let rec compile_destination ctx =
   let ( let* ) = Result.bind in
   function
   | Ast.DestAccount acc_name_expr ->
-    let* account_idx = compile_expr_chunk ctx acc_name_expr in
-    Stack.push (Program.Dest_Account { account_idx }) ctx.destinations;
+    let* account_expr_idx = compile_expr_chunk ctx acc_name_expr in
+    Stack.push (Program.Dest_Account { account_expr_idx }) ctx.destinations;
     Ok ()
   | _ -> failwith "TODO dest"
 ;;

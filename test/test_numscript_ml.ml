@@ -47,8 +47,8 @@ let vm_tests =
                 [| Stmt_Send
                      { monetary_expr_idx = 0; source_idx = 0; destination_idx = 0 }
                 |]
-            ; sources = [| Src_Account { account_idx = 1 } |]
-            ; destinations = [| Dest_Account { account_idx = 2 } |]
+            ; sources = [| Src_Account { account_expr_idx = 1 } |]
+            ; destinations = [| Dest_Account { account_expr_idx = 2 } |]
             ; expr_bytecode =
                 [| Expr_FetchConst { pool = `StringLike; pool_idx = 0 }
                  ; Expr_FetchConst { pool = `Int; pool_idx = 0 }
