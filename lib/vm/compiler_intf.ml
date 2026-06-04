@@ -6,4 +6,4 @@ type compilation_err =
       { fn_name : string
       ; received : int
       }
-[@@deriving show { with_path = false }, eq]
+[@@deriving show { with_path = false }]

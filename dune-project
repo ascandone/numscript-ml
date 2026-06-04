@@ -30,7 +30,7 @@
   yojson
   ppx_deriving_yojson
   ppx_deriving
-  (alcotest :with-test)
+  ppx_expect
   (ocamlformat :with-dev-setup)
   (ocaml-lsp-server :with-dev-setup))
  (tags

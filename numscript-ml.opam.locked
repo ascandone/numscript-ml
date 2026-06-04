@@ -11,9 +11,8 @@ homepage: "https://github.com/username/reponame"
 doc: "https://url/to/documentation"
 bug-reports: "https://github.com/username/reponame/issues"
 depends: [
-  "alcotest" {= "1.9.1" & with-test}
-  "astring" {= "0.8.5" & with-test}
-  "base" {= "v0.17.3" & with-dev-setup}
+  "astring" {= "0.8.5" & with-doc}
+  "base" {= "v0.17.3"}
   "base-bigarray" {= "base"}
   "base-domains" {= "base"}
   "base-effects" {= "base"}
@@ -22,22 +21,24 @@ depends: [
   "base-unix" {= "base"}
   "camlp-streams" {= "5.0.1" & with-doc}
   "chrome-trace" {= "3.23.1" & with-dev-setup}
-  "cmdliner" {= "2.1.1" & with-test}
+  "cmdliner" {= "2.1.1" & with-doc}
   "cppo" {= "1.8.0"}
   "crunch" {= "4.0.0" & with-doc}
-  "csexp" {= "1.5.2" & with-dev-setup}
+  "csexp" {= "1.5.2"}
   "dune" {= "3.23.1"}
   "dune-build-info" {= "3.23.1" & with-dev-setup}
-  "dune-configurator" {= "3.23.1" & with-dev-setup}
+  "dune-configurator" {= "3.23.1"}
   "dune-rpc" {= "3.23.1" & with-dev-setup}
   "dyn" {= "3.23.1" & with-dev-setup}
   "either" {= "1.0.0" & with-dev-setup}
   "fiber" {= "3.7.0" & with-dev-setup}
   "fix" {= "20250919" & with-dev-setup}
-  "fmt" {= "0.11.0" & with-test}
+  "fmt" {= "0.11.0" & with-doc}
   "fpath" {= "0.7.3" & with-doc}
   "fs-io" {= "3.23.1" & with-dev-setup}
+  "jane-street-headers" {= "v0.17.0"}
   "jsonrpc" {= "1.26.0" & with-dev-setup}
+  "jst-config" {= "v0.17.0"}
   "lsp" {= "1.26.0" & with-dev-setup}
   "menhir" {= "20260209"}
   "menhirCST" {= "20260209"}
@@ -53,10 +54,9 @@ depends: [
   "ocaml-index" {= "5.7.1-504" & with-dev-setup}
   "ocaml-lsp-server" {= "1.26.0" & with-dev-setup}
   "ocaml-options-vanilla" {= "1"}
-  "ocaml-syntax-shims" {= "1.0.0" & with-test}
   "ocaml-version" {= "4.1.1" & with-dev-setup}
-  "ocaml_intrinsics_kernel" {= "v0.17.2" & with-dev-setup}
-  "ocamlbuild" {= "0.16.1" & with-test}
+  "ocaml_intrinsics_kernel" {= "v0.17.2"}
+  "ocamlbuild" {= "0.16.1" & with-doc}
   "ocamlc-loc" {= "3.23.1" & with-dev-setup}
   "ocamlfind" {= "1.9.8"}
   "ocamlformat" {= "0.29.0" & with-dev-setup}
@@ -67,27 +67,41 @@ depends: [
   "odoc-parser" {= "3.2.1" & with-doc}
   "ordering" {= "3.23.1" & with-dev-setup}
   "pp" {= "2.0.0" & with-dev-setup}
+  "ppx_assert" {= "v0.17.0"}
+  "ppx_base" {= "v0.17.0"}
+  "ppx_cold" {= "v0.17.0"}
+  "ppx_compare" {= "v0.17.0"}
   "ppx_derivers" {= "1.2.1"}
   "ppx_deriving" {= "6.1.1"}
   "ppx_deriving_yojson" {= "3.10.0"}
+  "ppx_enumerate" {= "v0.17.0"}
+  "ppx_expect" {= "v0.17.3"}
+  "ppx_globalize" {= "v0.17.2"}
+  "ppx_hash" {= "v0.17.0"}
+  "ppx_here" {= "v0.17.0"}
+  "ppx_inline_test" {= "v0.17.1"}
+  "ppx_optcomp" {= "v0.17.1"}
+  "ppx_sexp_conv" {= "v0.17.1"}
   "ppx_yojson_conv_lib" {= "v0.17.0" & with-dev-setup}
   "ppxlib" {= "0.38.0"}
+  "ppxlib_jane" {= "v0.17.4"}
   "ptime" {= "1.2.0" & with-doc}
-  "re" {= "1.14.0" & with-test}
-  "seq" {= "base" & with-doc}
+  "re" {= "1.14.0" & with-doc}
+  "seq" {= "base"}
   "sexplib0" {= "v0.17.0"}
   "spawn" {= "v0.17.0" & with-dev-setup}
-  "stdio" {= "v0.17.0" & with-dev-setup}
+  "stdio" {= "v0.17.0"}
   "stdlib-shims" {= "0.3.0"}
   "stdune" {= "3.23.1" & with-dev-setup}
+  "time_now" {= "v0.17.0"}
   "top-closure" {= "3.23.1" & with-dev-setup}
-  "topkg" {= "1.1.1" & with-test}
+  "topkg" {= "1.1.1" & with-doc}
   "tyxml" {= "4.6.0" & with-doc}
   "uucp" {= "17.0.0" & with-dev-setup}
   "uuseg" {= "17.0.0" & with-dev-setup}
-  "uutf" {= "1.0.4" & with-test}
+  "uutf" {= "1.0.4" & with-doc}
   "xdg" {= "3.23.1" & with-dev-setup}
-  "yojson" {= "3.0.0"}
+  "yojson" {= "2.2.2"}
 ]
 build: [
   ["dune" "subst"] {dev}
