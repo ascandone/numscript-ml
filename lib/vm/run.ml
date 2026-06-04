@@ -161,11 +161,25 @@ let rec pull_source ?cap ctx =
   incr ctx.pc;
   match op with
   | Program.Src_Account { account_expr_idx } ->
+    (* TODO(bug) we this account might be implicitly unbounded (@world). We don't know that statically so we need to check that here *)
+
     (* -- parse *)
     let name = eval_expr_by_idx ctx account_expr_idx ~stack:ctx.stacks.string_like in
     (* -- eval *)
     let acc_balance = get_account_balance ctx name in
     send ctx name (min_opt (max 0L acc_balance) cap)
+  | Program.Src_AccountUnbounded { account_expr_idx } ->
+    (* -- parse *)
+    let name = eval_expr_by_idx ctx account_expr_idx ~stack:ctx.stacks.string_like in
+    (* -- eval *)
+    let amt =
+      match cap with
+      | None ->
+        (* TODO double check this branch is unreachable *)
+        failwith "[unreachable] invalid unbounded source in unbounded mode"
+      | Some cap -> cap
+    in
+    send ctx name amt
   | Program.Src_Max { monetary_expr_idx } ->
     (* -- parse *)
     let _asset, max_cap =

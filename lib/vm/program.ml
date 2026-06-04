@@ -3,6 +3,7 @@
 (** the serialized view of bytecode representing the numscript constructs (not exprs) *)
 type op_source =
   | Src_Account of { account_expr_idx : int }
+  | Src_AccountUnbounded of { account_expr_idx : int }
   | Src_Inorder of { end_idx : int }
   | Src_Max of { monetary_expr_idx : int }
 [@@deriving show { with_path = false }]

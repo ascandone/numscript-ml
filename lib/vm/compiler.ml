@@ -119,6 +119,14 @@ let rec compile_source ctx =
     let* account_expr_idx = compile_expr_chunk ctx acc_name_expr in
     Stack.push (Program.Src_Account { account_expr_idx }) ctx.sources;
     Ok ()
+  | Ast.SrcAccountOverdraft { account; max_overdraft = None } ->
+    let* account_expr_idx = compile_expr_chunk ctx account in
+    Stack.push (Program.Src_AccountUnbounded { account_expr_idx }) ctx.sources;
+    Ok ()
+  | Ast.SrcAccountOverdraft { account; max_overdraft = Some overdraft_expr } ->
+    let* _account_expr_idx = compile_expr_chunk ctx account in
+    let* _overdraft_expr_idx = compile_expr_chunk ctx overdraft_expr in
+    failwith "[TODO] compile bounded overdradt"
   | Ast.SrcMax (cap, sub_source) ->
     let* monetary_expr_idx = compile_expr_chunk ctx cap in
     Stack.push (Program.Src_Max { monetary_expr_idx }) ctx.sources;
@@ -135,7 +143,6 @@ let rec compile_source ctx =
     let end_idx = Stack.length ctx.sources in
     Hashtbl.replace ctx.source_patches inorder_src_idx (Program.Src_Inorder { end_idx });
     Ok ()
-  | Ast.SrcAccountOverdraft _ -> failwith "TODO overdraft"
   | Ast.SrcAllotment _ -> failwith "TODO allotmnent"
 ;;
 
