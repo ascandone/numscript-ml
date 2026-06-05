@@ -233,14 +233,25 @@ and pull_source_amt ctx ~needed_amt =
   got_amt
 ;;
 
-let send_to_dest ctx ~cap =
+(* TODO cap should probably be an `int64 option` *)
+let rec send_to_dest ctx ~cap =
   let op = ctx.program.destinations.(!(ctx.pc)) in
   incr ctx.pc;
   match op with
   | Program.Dest_Account { account_expr_idx } ->
     let account = eval_expr_by_idx ctx account_expr_idx ~stack:ctx.stacks.string_like in
-    send_to_acc ctx account ~dest_cap:cap;
-    ()
+    send_to_acc ctx account ~dest_cap:cap
+  | Program.Dest_Kept -> failwith "[TODO] impl kept"
+  | Program.Dest_Max { monetary_expr_idx } ->
+    (* TODO check asset *)
+    let _asset, clause_cap =
+      eval_expr_by_idx ctx monetary_expr_idx ~stack:ctx.stacks.monetary
+    in
+    send_to_dest ctx ~cap:(min cap clause_cap);
+    if clause_cap < cap
+    then
+      (* We can aboid continuing if we depleted fundings in the dest within "max" clause *)
+      send_to_dest ctx ~cap:(Int64.sub cap clause_cap)
 ;;
 
 let eval_statement ctx = function

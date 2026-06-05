@@ -12,7 +12,10 @@ type op_source =
   | Src_Max of { monetary_expr_idx : int }
 [@@deriving show { with_path = false }]
 
-type op_dest = Dest_Account of { account_expr_idx : int }
+type op_dest =
+  | Dest_Kept
+  | Dest_Account of { account_expr_idx : int }
+  | Dest_Max of { monetary_expr_idx : int }
 [@@deriving show { with_path = false }]
 
 type expr_typ =

@@ -156,7 +156,24 @@ let rec compile_destination ctx =
     let* account_expr_idx = compile_expr_chunk ctx acc_name_expr in
     Stack.push (Program.Dest_Account { account_expr_idx }) ctx.destinations;
     Ok ()
-  | Ast.DestAllotment _ | Ast.DestInorder _ -> failwith "TODO dest"
+  | Ast.DestInorder (clauses, rem) ->
+    (* TODO do we need to iter on reversed list? *)
+    let* () =
+      iter_result
+        (fun (clause : Ast.dest_inorder_clause) ->
+           let* monetary_expr_idx = compile_expr_chunk ctx clause.cap in
+           Stack.push (Program.Dest_Max { monetary_expr_idx }) ctx.destinations;
+           compile_destination_or_kept ctx clause.dest)
+        clauses
+    in
+    compile_destination_or_kept ctx rem
+  | Ast.DestAllotment _ -> failwith "[TODO] dest allotment"
+
+and compile_destination_or_kept ctx = function
+  | Ast.Dest sub_dest -> compile_destination ctx sub_dest
+  | Ast.Kept ->
+    Stack.push Program.Dest_Kept ctx.destinations;
+    Ok ()
 ;;
 
 let compile_stmt ctx =
@@ -470,6 +487,50 @@ let%expect_test "internal vars" =
       [|{ start_idx = 0; size = 1 }; { start_idx = 1; size = 1 };
         { start_idx = 2; size = 1 }; { start_idx = 3; size = 1 };
         { start_idx = 4; size = 1 }|]
+      }
+    |}]
+;;
+
+let%expect_test "internal vars" =
+  test_compiled
+    {|
+    send [USD/2 *] (
+      source = @acc
+      destination = {
+        max [USD/2 100] to @a
+        max [USD/2 200] to @b
+        remaining to @c
+      }
+    )
+
+  |};
+  [%expect
+    {|
+    { constant_pool =
+      { string_like = [|"USD/2"; "acc"; "USD/2"; "a"; "USD/2"; "b"; "c"|];
+        int = [|100L; 200L|] };
+      statements =
+      [|Stmt_SendAll {asset_expr_idx = 0; source_idx = 0; destination_idx = 0}|];
+      sources = [|Src_Account {account_expr_idx = 1}|];
+      destinations =
+      [|Dest_Max {monetary_expr_idx = 2}; Dest_Account {account_expr_idx = 3};
+        Dest_Max {monetary_expr_idx = 4}; Dest_Account {account_expr_idx = 5};
+        Dest_Account {account_expr_idx = 6}|];
+      expr_bytecode =
+      [|Expr_FetchConst {pool = `StringLike; pool_idx = 0};
+        Expr_FetchConst {pool = `StringLike; pool_idx = 1};
+        Expr_FetchConst {pool = `StringLike; pool_idx = 2};
+        Expr_FetchConst {pool = `Int; pool_idx = 0}; Expr_MkMonetary;
+        Expr_FetchConst {pool = `StringLike; pool_idx = 3};
+        Expr_FetchConst {pool = `StringLike; pool_idx = 4};
+        Expr_FetchConst {pool = `Int; pool_idx = 1}; Expr_MkMonetary;
+        Expr_FetchConst {pool = `StringLike; pool_idx = 5};
+        Expr_FetchConst {pool = `StringLike; pool_idx = 6}|];
+      expr_chunks =
+      [|{ start_idx = 0; size = 1 }; { start_idx = 1; size = 1 };
+        { start_idx = 2; size = 3 }; { start_idx = 5; size = 1 };
+        { start_idx = 6; size = 3 }; { start_idx = 9; size = 1 };
+        { start_idx = 10; size = 1 }|]
       }
     |}]
 ;;
