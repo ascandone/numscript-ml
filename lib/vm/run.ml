@@ -247,6 +247,7 @@ let rec send_to_dest ctx ~cap =
     let _asset, clause_cap =
       eval_expr_by_idx ctx monetary_expr_idx ~stack:ctx.stacks.monetary
     in
+    let clause_cap = int64_to_non_neg clause_cap in
     send_to_dest ctx ~cap:(min cap clause_cap);
     if clause_cap < cap
     then
