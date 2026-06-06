@@ -10,10 +10,7 @@ type op_source =
       }
   | Src_Inorder of { end_idx : int }
   | Src_Max of { monetary_expr_idx : int }
-  | Src_Allotment of
-      { array_const_idx : int
-      ; remaining : bool
-      }
+  | Src_Allotment of { array_const_idx : int }
 [@@deriving show { with_path = false }]
 
 type op_dest =

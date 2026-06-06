@@ -1,6 +1,6 @@
 (library
  (name vm)
- (libraries syntax)
+ (libraries syntax portion)
  (inline_tests)
  (preprocess
   (pps ppx_expect ppx_deriving.show)))

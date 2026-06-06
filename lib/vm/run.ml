@@ -4,7 +4,7 @@ type stacks =
   { string_like : string Stack.t
   ; int : int64 Stack.t
   ; monetary : (string * int64) Stack.t
-  ; portion : (int64 * int64) Stack.t
+  ; portion : Portion.t Stack.t
   }
 
 type ctx =
@@ -128,9 +128,9 @@ let eval_bytecode (ctx : ctx) =
     let amount = Stack.pop ctx.stacks.int in
     Stack.push (asset, amount) ctx.stacks.monetary
   | Program.Expr_MkPortion ->
-    let l = Stack.pop ctx.stacks.int in
-    let r = Stack.pop ctx.stacks.int in
-    Stack.push (l, r) ctx.stacks.portion
+    let num = Stack.pop ctx.stacks.int in
+    let den = Stack.pop ctx.stacks.int in
+    Stack.push (Portion.create ~num ~den) ctx.stacks.portion
   | Program.Expr_FetchVar { typ; name_idx } ->
     let name = Stack.pop ctx.stacks.string_like in
     let value =
@@ -226,7 +226,7 @@ let rec pull_source ?cap ctx =
     (* We make sure we deplete the inorder even if shortcircuited: *)
     ctx.pc := end_idx;
     !total_pulled
-  | Program.Src_Allotment { array_const_idx; remaining } ->
+  | Program.Src_Allotment { array_const_idx } ->
     (* -- parse *)
     let portions_array = ctx.program.constant_pool.array.(array_const_idx) in
     let cap =
@@ -238,25 +238,26 @@ let rec pull_source ?cap ctx =
     let values_to_send_first_pass =
       Array.map
         (fun por_expr_idx ->
-           let num, den = eval_expr_by_idx ctx por_expr_idx ~stack:ctx.stacks.portion in
+           let por = eval_expr_by_idx ctx por_expr_idx ~stack:ctx.stacks.portion in
+           let num = Portion.num por in
+           let den = Portion.den por in
            let floored_down = Int64.div (Int64.mul cap num) den in
            floored_down)
         portions_array
     in
     let total_sent_first_pass = Array.fold_left Int64.add 0L values_to_send_first_pass in
     let remainder_ref = ref (Int64.sub cap total_sent_first_pass) in
-    Array.iter
-      (fun needed_amt ->
-         let needed_amt =
-           if !remainder_ref > 0L
-           then (
-             remainder_ref := Int64.sub !remainder_ref 1L;
-             Int64.add 1L needed_amt)
-           else needed_amt
-         in
-         pull_source_amt ctx ~needed_amt)
-      values_to_send_first_pass;
-    if remaining then failwith "[TODO] unimplemented: remaining clause";
+    let pull_src needed_amt =
+      let needed_amt =
+        if !remainder_ref > 0L
+        then (
+          remainder_ref := Int64.sub !remainder_ref 1L;
+          Int64.add 1L needed_amt)
+        else needed_amt
+      in
+      pull_source_amt ctx ~needed_amt
+    in
+    Array.iter pull_src values_to_send_first_pass;
     cap
 
 and pull_source_amt ctx ~needed_amt =

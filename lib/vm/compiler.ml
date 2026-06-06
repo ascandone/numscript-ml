@@ -171,10 +171,7 @@ let rec compile_source ctx =
       |> Result.map Array.of_list
     in
     let array_idx = push_stack_idx por_array ctx.array_constants in
-    Stack.push
-      (Program.Src_Allotment
-         { array_const_idx = array_idx; remaining = Option.is_some rem_clause })
-      ctx.sources;
+    Stack.push (Program.Src_Allotment { array_const_idx = array_idx }) ctx.sources;
     let* () = iter_result (fun (_, source) -> compile_source ctx source) por_clauses in
     let* () =
       match rem_clause with
