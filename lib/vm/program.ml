@@ -10,6 +10,10 @@ type op_source =
       }
   | Src_Inorder of { end_idx : int }
   | Src_Max of { monetary_expr_idx : int }
+  | Src_Allotment of
+      { array_const_idx : int
+      ; remaining : bool
+      }
 [@@deriving show { with_path = false }]
 
 type op_dest =
@@ -82,6 +86,7 @@ type monetary_const =
 type constant_pool =
   { string_like : string array
   ; int : int64 array
+  ; array : int array array
   }
 [@@deriving show { with_path = false }]
 
@@ -95,7 +100,10 @@ type expr_chunk =
 (** the serialized repr of a compiled program.
   NOT the runtime machine *)
 type t =
-  { constant_pool : constant_pool
+  { (* TODO we actually need one more indirection for the constant pool
+      so that we can load the constants table during hydration
+    *)
+    constant_pool : constant_pool
   ; statements : op_stmt array
   ; sources : op_source array
   ; destinations : op_dest array

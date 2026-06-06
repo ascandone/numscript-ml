@@ -9,6 +9,7 @@ type ctx =
   { string_like_constants : string Stack.t
   ; vars : (string, var_resolution * Program.expr_typ) Hashtbl.t
   ; int_constants : int64 Stack.t
+  ; array_constants : int array Stack.t
   ; expr_bytecode : Program.op_expr Stack.t
   ; expr_bytecode_chunks : Program.expr_chunk Stack.t
   ; sources : Program.op_source Stack.t
@@ -18,6 +19,15 @@ type ctx =
   ; statements : Program.op_stmt Stack.t
   ; next_var_uid : int ref
   }
+
+let rec map_result f = function
+  | [] -> Ok []
+  | hd :: tl ->
+    let ( let* ) = Result.bind in
+    let* hd = f hd in
+    let* tl = map_result f tl in
+    Ok (hd :: tl)
+;;
 
 let rec iter_result f = function
   | [] -> Ok ()
@@ -75,8 +85,8 @@ let rec compile_expr ctx =
     compile_int_const ctx num;
     Ok ()
   | Ast.ExprInfix (op, l, r) ->
-    let* () = compile_expr ctx l in
     let* () = compile_expr ctx r in
+    let* () = compile_expr ctx l in
     Stack.push
       (match op with
        | Ast.Add -> Program.Expr_NumAdd
@@ -146,7 +156,32 @@ let rec compile_source ctx =
     let end_idx = Stack.length ctx.sources in
     Hashtbl.replace ctx.source_patches inorder_src_idx (Program.Src_Inorder { end_idx });
     Ok ()
-  | Ast.SrcAllotment _ -> failwith "TODO allotmnent"
+  | Ast.SrcAllotment clauses ->
+    (* TODO: if at least one portion is variable, rem is mandatory *)
+    (* TODO: sum(known portions) must be <= 1 *)
+    let por_clauses =
+      List.filter_map (fun (expr, src) -> Option.map (fun expr -> expr, src) expr) clauses
+    in
+    let rem_clause =
+      List.find_opt (fun (expr, _) -> Option.is_none expr) clauses |> Option.map snd
+    in
+    let* por_array =
+      por_clauses
+      |> map_result (fun (expr, _) -> compile_expr_chunk ctx expr)
+      |> Result.map Array.of_list
+    in
+    let array_idx = push_stack_idx por_array ctx.array_constants in
+    Stack.push
+      (Program.Src_Allotment
+         { array_const_idx = array_idx; remaining = Option.is_some rem_clause })
+      ctx.sources;
+    let* () = iter_result (fun (_, source) -> compile_source ctx source) por_clauses in
+    let* () =
+      match rem_clause with
+      | None -> Ok ()
+      | Some rem_src -> compile_source ctx rem_src
+    in
+    Ok ()
 ;;
 
 let rec compile_destination ctx =
@@ -263,6 +298,7 @@ let compile_parsed (program_ast : Syntax.Ast.program) =
     { vars = Hashtbl.create 5
     ; string_like_constants = Stack.create ()
     ; int_constants = Stack.create ()
+    ; array_constants = Stack.create ()
     ; expr_bytecode = Stack.create ()
     ; expr_bytecode_chunks = Stack.create ()
     ; sources = Stack.create ()
@@ -284,6 +320,7 @@ let compile_parsed (program_ast : Syntax.Ast.program) =
   let constant_pool : Program.constant_pool =
     { string_like = stack_to_array ctx.string_like_constants
     ; int = stack_to_array ctx.int_constants
+    ; array = stack_to_array ctx.array_constants
     }
   in
   Ok
@@ -314,9 +351,9 @@ let%expect_test "empty program" =
   test_compiled {||};
   [%expect
     {|
-    { constant_pool = { string_like = [||]; int = [||] }; statements = [||];
-      sources = [||]; destinations = [||]; expr_bytecode = [||];
-      expr_chunks = [||] }
+    { constant_pool = { string_like = [||]; int = [||]; array = [||] };
+      statements = [||]; sources = [||]; destinations = [||];
+      expr_bytecode = [||]; expr_chunks = [||] }
     |}]
 ;;
 
@@ -331,7 +368,8 @@ let%expect_test "simple send" =
   |};
   [%expect
     {|
-    { constant_pool = { string_like = [|"USD/2"; "src"; "dest"|]; int = [|10L|] };
+    { constant_pool =
+      { string_like = [|"USD/2"; "src"; "dest"|]; int = [|10L|]; array = [||] };
       statements =
       [|Stmt_Send {monetary_expr_idx = 0; source_idx = 0; destination_idx = 0}|];
       sources = [|Src_Account {account_expr_idx = 1}|];
@@ -363,7 +401,8 @@ let%expect_test "inorder" =
   [%expect
     {|
     { constant_pool =
-      { string_like = [|"USD/2"; "src1"; "src2"; "dest"|]; int = [|10L|] };
+      { string_like = [|"USD/2"; "src1"; "src2"; "dest"|]; int = [|10L|];
+        array = [||] };
       statements =
       [|Stmt_Send {monetary_expr_idx = 0; source_idx = 0; destination_idx = 0}|];
       sources =
@@ -399,7 +438,7 @@ let%expect_test "inorder + nested max" =
     {|
     { constant_pool =
       { string_like = [|"USD/2"; "USD/2"; "src1"; "src2"; "dest"|];
-        int = [|10L; 5L|] };
+        int = [|10L; 5L|]; array = [||] };
       statements =
       [|Stmt_Send {monetary_expr_idx = 0; source_idx = 0; destination_idx = 0}|];
       sources =
@@ -438,7 +477,8 @@ let%expect_test "extern vars" =
   |};
   [%expect
     {|
-    { constant_pool = { string_like = [|"m"; "src"; "dest"|]; int = [||] };
+    { constant_pool =
+      { string_like = [|"m"; "src"; "dest"|]; int = [||]; array = [||] };
       statements =
       [|Stmt_Send {monetary_expr_idx = 0; source_idx = 0; destination_idx = 0}|];
       sources = [|Src_Account {account_expr_idx = 1}|];
@@ -470,7 +510,8 @@ let%expect_test "internal vars" =
   |};
   [%expect
     {|
-    { constant_pool = { string_like = [|"acc"; "USD/2"|]; int = [||] };
+    { constant_pool =
+      { string_like = [|"acc"; "USD/2"|]; int = [||]; array = [||] };
       statements =
       [|Stmt_SetLocal {var_uid = 0; typ = ExprTyp_Account; expr_idx = 0};
         Stmt_SetLocal {var_uid = 1; typ = ExprTyp_Account; expr_idx = 1};
@@ -508,7 +549,7 @@ let%expect_test "internal vars" =
     {|
     { constant_pool =
       { string_like = [|"USD/2"; "acc"; "USD/2"; "a"; "USD/2"; "b"; "c"|];
-        int = [|100L; 200L|] };
+        int = [|100L; 200L|]; array = [||] };
       statements =
       [|Stmt_SendAll {asset_expr_idx = 0; source_idx = 0; destination_idx = 0}|];
       sources = [|Src_Account {account_expr_idx = 1}|];
@@ -530,6 +571,49 @@ let%expect_test "internal vars" =
       [|{ start_idx = 0; size = 1 }; { start_idx = 1; size = 1 };
         { start_idx = 2; size = 3 }; { start_idx = 5; size = 1 };
         { start_idx = 6; size = 3 }; { start_idx = 9; size = 1 };
+        { start_idx = 10; size = 1 }|]
+      }
+    |}]
+;;
+
+let%expect_test "allotment" =
+  test_compiled
+    {|
+    send [USD/2 *] (
+      source = {
+        1/3 from @s1
+        1/4 from @s2
+        remaining from @s3
+      }
+      destination = @dest
+    )
+  |};
+  [%expect
+    {|
+    { constant_pool =
+      { string_like = [|"USD/2"; "s1"; "s2"; "s3"; "dest"|];
+        int = [|1L; 3L; 1L; 4L|]; array = [|[|1; 2|]|] };
+      statements =
+      [|Stmt_SendAll {asset_expr_idx = 0; source_idx = 0; destination_idx = 0}|];
+      sources =
+      [|Src_Allotment {array_const_idx = 0; remaining = true};
+        Src_Account {account_expr_idx = 3}; Src_Account {account_expr_idx = 4};
+        Src_Account {account_expr_idx = 5}|];
+      destinations = [|Dest_Account {account_expr_idx = 6}|];
+      expr_bytecode =
+      [|Expr_FetchConst {pool = `StringLike; pool_idx = 0};
+        Expr_FetchConst {pool = `Int; pool_idx = 0};
+        Expr_FetchConst {pool = `Int; pool_idx = 1}; Expr_MkPortion;
+        Expr_FetchConst {pool = `Int; pool_idx = 2};
+        Expr_FetchConst {pool = `Int; pool_idx = 3}; Expr_MkPortion;
+        Expr_FetchConst {pool = `StringLike; pool_idx = 1};
+        Expr_FetchConst {pool = `StringLike; pool_idx = 2};
+        Expr_FetchConst {pool = `StringLike; pool_idx = 3};
+        Expr_FetchConst {pool = `StringLike; pool_idx = 4}|];
+      expr_chunks =
+      [|{ start_idx = 0; size = 1 }; { start_idx = 1; size = 3 };
+        { start_idx = 4; size = 3 }; { start_idx = 7; size = 1 };
+        { start_idx = 8; size = 1 }; { start_idx = 9; size = 1 };
         { start_idx = 10; size = 1 }|]
       }
     |}]

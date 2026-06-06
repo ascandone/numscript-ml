@@ -226,11 +226,43 @@ let rec pull_source ?cap ctx =
     (* We make sure we deplete the inorder even if shortcircuited: *)
     ctx.pc := end_idx;
     !total_pulled
+  | Program.Src_Allotment { array_const_idx; remaining } ->
+    (* -- parse *)
+    let portions_array = ctx.program.constant_pool.array.(array_const_idx) in
+    let cap =
+      match cap with
+      | None -> failwith "[unreachable] allotment in unbounded mode"
+      | Some cap -> cap
+    in
+    (* -- eval *)
+    let values_to_send_first_pass =
+      Array.map
+        (fun por_expr_idx ->
+           let num, den = eval_expr_by_idx ctx por_expr_idx ~stack:ctx.stacks.portion in
+           let floored_down = Int64.div (Int64.mul cap num) den in
+           floored_down)
+        portions_array
+    in
+    let total_sent_first_pass = Array.fold_left Int64.add 0L values_to_send_first_pass in
+    let remainder_ref = ref (Int64.sub cap total_sent_first_pass) in
+    Array.iter
+      (fun needed_amt ->
+         let needed_amt =
+           if !remainder_ref > 0L
+           then (
+             remainder_ref := Int64.sub !remainder_ref 1L;
+             Int64.add 1L needed_amt)
+           else needed_amt
+         in
+         pull_source_amt ctx ~needed_amt)
+      values_to_send_first_pass;
+    if remaining then failwith "[TODO] unimplemented: remaining clause";
+    cap
 
 and pull_source_amt ctx ~needed_amt =
   let got_amt = pull_source ctx ~cap:needed_amt in
   if got_amt < needed_amt then raise (RunError MissingFunds);
-  got_amt
+  ()
 ;;
 
 (* TODO cap should probably be an `int64 option` *)
@@ -271,9 +303,9 @@ let eval_statement ctx = function
     let ctx = { ctx with current_asset = asset } in
     (* TODO update ctx with asset *)
     ctx.pc := source_idx;
-    let pulled = pull_source_amt ~needed_amt ctx in
+    pull_source_amt ~needed_amt ctx;
     ctx.pc := destination_idx;
-    send_to_dest ctx ~cap:pulled
+    send_to_dest ctx ~cap:needed_amt
   | Program.Stmt_Save { monetary_expr_idx; account_expr_idx } ->
     let asset, _needed_amt =
       eval_expr_by_idx ctx monetary_expr_idx ~stack:ctx.stacks.monetary
