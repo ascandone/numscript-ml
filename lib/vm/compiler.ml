@@ -589,13 +589,12 @@ let%expect_test "allotment" =
     {|
     { constant_pool =
       { string_like = [|"USD/2"; "s1"; "s2"; "s3"; "dest"|];
-        int = [|1L; 3L; 1L; 4L|]; array = [|[|1; 2|]|] };
+        int = [|3L; 1L; 4L; 1L|]; array = [|[|1; 2|]|] };
       statements =
       [|Stmt_SendAll {asset_expr_idx = 0; source_idx = 0; destination_idx = 0}|];
       sources =
-      [|Src_Allotment {array_const_idx = 0; remaining = true};
-        Src_Account {account_expr_idx = 3}; Src_Account {account_expr_idx = 4};
-        Src_Account {account_expr_idx = 5}|];
+      [|Src_Allotment {array_const_idx = 0}; Src_Account {account_expr_idx = 3};
+        Src_Account {account_expr_idx = 4}; Src_Account {account_expr_idx = 5}|];
       destinations = [|Dest_Account {account_expr_idx = 6}|];
       expr_bytecode =
       [|Expr_FetchConst {pool = `StringLike; pool_idx = 0};
