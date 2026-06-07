@@ -1,0 +1,3 @@
+(library
+ (name vm_register)
+ (libraries syntax common portion))
