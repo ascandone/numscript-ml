@@ -59,9 +59,7 @@ let rec compile_source ~tot_reg ~cap_reg ctx (source : Ast.source) =
     failwith "[TODO] uncapped pull"
   | Ast.SrcAccount name, Some cap ->
     let account_reg = compile_expr ctx name ~reg_pool:ctx.next_monetary_reg in
-    Dynarray.add_last
-      ctx.instructions
-      (PullAccount { cap; account = account_reg; tot = tot_reg })
+    push_instruction ctx @@ PullAccount { cap; account = account_reg; tot = tot_reg }
   | Ast.SrcMax (cap, sub_src), None ->
     let cap_reg = compile_expr ctx cap ~reg_pool:ctx.next_monetary_reg in
     (* TODO should we extract the amount and pass that instead of monetary?  *)
