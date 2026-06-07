@@ -59,7 +59,7 @@ let rec compile_source ~tot_reg ~cap_reg ctx (source : Ast.source) =
     failwith "[TODO] uncapped pull"
   | Ast.SrcAccount name, Some cap ->
     let account_reg = compile_expr ctx name ~reg_pool:ctx.next_monetary_reg in
-    push_instruction ctx @@ PullAccount { cap; account = account_reg; tot = tot_reg }
+    push_instruction ctx (PullAccount { cap; account = account_reg; tot = tot_reg })
   | Ast.SrcMax (cap, sub_src), None ->
     let cap_reg = compile_expr ctx cap ~reg_pool:ctx.next_monetary_reg in
     (* TODO should we extract the amount and pass that instead of monetary?  *)
@@ -67,8 +67,9 @@ let rec compile_source ~tot_reg ~cap_reg ctx (source : Ast.source) =
   | Ast.SrcMax (max_cap, sub_src), Some outer_cap_reg ->
     let max_cap_reg = compile_expr ctx max_cap ~reg_pool:ctx.next_monetary_reg in
     let actual_cap_reg = get_fresh_dest ctx.next_monetary_reg in
-    push_instruction ctx
-    @@ MinMonetary { dest = actual_cap_reg; left = max_cap_reg; right = outer_cap_reg };
+    push_instruction
+      ctx
+      (MinMonetary { dest = actual_cap_reg; left = max_cap_reg; right = outer_cap_reg });
     (* TODO should we create a new tot_reg? probably not *)
     compile_source ~tot_reg ~cap_reg:(Some actual_cap_reg) ctx sub_src
   | Ast.SrcInorder _, None -> failwith "compilation err: uncapped inorder"
@@ -79,13 +80,15 @@ let rec compile_source ~tot_reg ~cap_reg ctx (source : Ast.source) =
     compile_source ctx ~tot_reg ~cap_reg:(Some outer_cap_reg) sub_src;
     let instruction_count_before = Dynarray.length ctx.instructions in
     (*  we emit a dummy instruction now, and schedule a patch with the correct delta *)
-    push_instruction ctx @@ JmpIfZero { amount = 0; delta = 0 };
+    push_instruction ctx (JmpIfZero { amount = 0; delta = 0 });
     compile_source ~tot_reg ~cap_reg ctx (Ast.SrcInorder sub_srcs);
     (* we patch the previous delta: *)
     let instruction_count_after = Dynarray.length ctx.instructions in
-    Dynarray.set ctx.instructions instruction_count_before
-    @@ JmpIfZero
-         { amount = tot_reg; delta = instruction_count_after - instruction_count_before }
+    Dynarray.set
+      ctx.instructions
+      instruction_count_before
+      (JmpIfZero
+         { amount = tot_reg; delta = instruction_count_after - instruction_count_before })
   | Ast.SrcAllotment _, _ -> failwith "TODO"
 ;;
 
