@@ -89,7 +89,8 @@ let rec compile_source ~tot_reg ~cap_reg ctx (source : Ast.source) =
       instruction_count_before
       (JmpIfZero
          { amount = tot_reg; delta = instruction_count_after - instruction_count_before })
-  | Ast.SrcAllotment _, _ -> failwith "TODO"
+  | Ast.SrcAllotment _, None -> failwith "compilation err: uncapped allotment"
+  | Ast.SrcAllotment _, Some _ -> failwith "TODO"
 ;;
 
 let compile_parsed syntax =
