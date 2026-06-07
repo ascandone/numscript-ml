@@ -1,5 +1,7 @@
 type reg = int
 
+let pp_reg fmt = Format.fprintf fmt "R%d"
+
 type t =
   | LoadConst of
       { value : [ `String of string | `Int of int64 ]
@@ -47,3 +49,4 @@ type t =
       ; asset : reg
       ; amount : reg
       }
+[@@deriving show { with_path = false }]

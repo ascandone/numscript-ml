@@ -1,4 +1,5 @@
 type compiled_program = { instructions : Instruction.t array }
+[@@deriving show { with_path = false }]
 
 type compilation_err =
   | UnboundVar of string

@@ -1,3 +1,6 @@
 (library
  (name vm_register)
- (libraries syntax common portion))
+ (libraries syntax common portion)
+ (inline_tests)
+ (preprocess
+  (pps ppx_expect ppx_deriving.show)))

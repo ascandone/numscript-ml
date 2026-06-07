@@ -17,8 +17,7 @@ let get_fresh_dest reg_ref =
 
 let push_instruction ctx instr = Dynarray.add_last ctx.instructions instr
 
-let rec compile_expr_to ~dest ctx (expr : Ast.expr) =
-  match expr with
+let rec compile_expr_to ~dest ctx = function
   | Ast.ExprVar _ -> failwith "[TODO] var"
   | Ast.ExprAccount str | Ast.ExprAsset str | Ast.ExprString str ->
     push_instruction ctx @@ LoadConst { value = `String str; dest }
@@ -93,7 +92,28 @@ let rec compile_source ~tot_reg ~cap_reg ctx (source : Ast.source) =
   | Ast.SrcAllotment _, Some _ -> failwith "TODO"
 ;;
 
-let compile_parsed syntax =
+let compile_dest _ctx = function
+  | Ast.DestAccount _ -> ()
+  | Ast.DestAllotment _ -> ()
+  | Ast.DestInorder _ -> ()
+;;
+
+let compile_stmt ctx = function
+  | Ast.StmtSend { monetary; source; destination } ->
+    let tot_reg = get_fresh_dest ctx.next_int_reg in
+    let monetary_reg = compile_expr ctx monetary ~reg_pool:ctx.next_monetary_reg in
+    compile_source ~tot_reg ~cap_reg:(Some monetary_reg) ctx source;
+    compile_dest ctx destination
+  | Ast.StmtSendAll { asset; source; destination } ->
+    let tot_reg = get_fresh_dest ctx.next_int_reg in
+    let _asset_reg = compile_expr ctx asset ~reg_pool:ctx.next_string_reg in
+    compile_source ~tot_reg ~cap_reg:None ctx source;
+    compile_dest ctx destination
+  | Ast.Save _ -> failwith "[TODO] compile stmt"
+  | Ast.FnStatement _ -> failwith "[TODO] compile stmt"
+;;
+
+let compile_parsed (program : Ast.program) =
   let ctx : ctx =
     { instructions = Dynarray.create ()
     ; next_string_reg = ref 0
@@ -102,8 +122,76 @@ let compile_parsed syntax =
     ; next_monetary_reg = ref 0
     }
   in
+  List.iter (compile_stmt ctx) program.statements;
   let compiled : compiled_program =
     { instructions = Dynarray.to_array ctx.instructions }
   in
   Ok compiled
+;;
+
+(* --- test *)
+let test_compiled source =
+  let parsed_ast = Syntax.Parser.parse source in
+  let result = compile_parsed parsed_ast in
+  let compiled_program =
+    match result with
+    | Error e -> failwith (show_compilation_err e)
+    | Ok compiled -> compiled
+  in
+  print_endline (Compiler_intf.show_compiled_program compiled_program)
+;;
+
+let%expect_test "empty program" =
+  test_compiled {||};
+  [%expect {| { instructions = [||] } |}]
+;;
+
+let%expect_test "simple program" =
+  test_compiled
+    {|
+    send [USD/2 10] (
+      source = @src
+      destination = @dest
+    )
+  |};
+  [%expect
+    {|
+    { instructions =
+      [|LoadConst {value = `String ("USD/2"); dest = R0};
+        LoadConst {value = `Int (10L); dest = R1};
+        MkMonetary {dest = R0; asset = R0; amount = R1};
+        LoadConst {value = `String ("src"); dest = R1};
+        PullAccount {cap = R0; account = R1; tot = R0}|]
+      }
+    |}]
+;;
+
+let%expect_test "capped + inorder" =
+  test_compiled
+    {|
+    send [USD/2 10] (
+      source = {
+        max [USD/2 5] from @s1
+        @s2
+      }
+      destination = @dest
+    )
+  |};
+  [%expect
+    {|
+    { instructions =
+      [|LoadConst {value = `String ("USD/2"); dest = R0};
+        LoadConst {value = `Int (10L); dest = R1};
+        MkMonetary {dest = R0; asset = R0; amount = R1};
+        LoadConst {value = `String ("USD/2"); dest = R2};
+        LoadConst {value = `Int (5L); dest = R3};
+        MkMonetary {dest = R1; asset = R2; amount = R3};
+        MinMonetary {dest = R2; left = R1; right = R0};
+        LoadConst {value = `String ("s1"); dest = R3};
+        PullAccount {cap = R2; account = R3; tot = R0};
+        JmpIfZero {amount = R0; delta = 3};
+        LoadConst {value = `String ("s2"); dest = R4};
+        PullAccount {cap = R0; account = R4; tot = R0}|]
+      }
+    |}]
 ;;
