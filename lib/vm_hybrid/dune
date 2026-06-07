@@ -1,5 +1,5 @@
 (library
- (name vm)
+ (name vm_hybrid)
  (libraries syntax portion)
  (inline_tests)
  (preprocess
