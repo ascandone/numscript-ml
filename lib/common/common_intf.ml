@@ -1,0 +1,23 @@
+type expr_typ =
+  | ExprTyp_Number
+  | ExprTyp_String
+  | ExprTyp_Account
+  | ExprTyp_Asset
+  | ExprTyp_Monetary
+  | ExprTyp_Portion
+[@@deriving show { with_path = false }]
+
+type run_error =
+  | MissingFunds
+  | UnboundVar of string
+  | InvalidVarSyntax of
+      { typ : expr_typ
+      ; value : string
+      }
+
+type posting =
+  { source : string
+  ; destination : string
+  ; asset : string
+  ; amount : int64
+  }

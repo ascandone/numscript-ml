@@ -19,19 +19,10 @@ type op_dest =
   | Dest_Max of { monetary_expr_idx : int }
 [@@deriving show { with_path = false }]
 
-type expr_typ =
-  | ExprTyp_Number
-  | ExprTyp_String
-  | ExprTyp_Account
-  | ExprTyp_Asset
-  | ExprTyp_Monetary
-  | ExprTyp_Portion
-[@@deriving show { with_path = false }]
-
 type op_stmt =
   | Stmt_SetLocal of
       { var_uid : int
-      ; typ : expr_typ
+      ; typ : Common.expr_typ
       ; expr_idx : int
       }
   | Stmt_Send of
@@ -59,11 +50,11 @@ type op_expr =
       ; pool_idx : int
       }
   | Expr_FetchVar of
-      { typ : expr_typ
+      { typ : Common.expr_typ
       ; name_idx : int
       }
   | Expr_GetLocal of
-      { typ : expr_typ
+      { typ : Common.expr_typ
       ; uid : int
       }
   | Expr_NumAdd

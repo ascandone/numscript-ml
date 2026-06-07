@@ -43,7 +43,7 @@ let merge_vars a b = Specs_format.StringMap.union (fun _ _ v -> Some v) a b
 
 let compute_movements postings =
   List.fold_left
-    (fun acc (p : Run.posting) ->
+    (fun acc (p : Common.posting) ->
        let by_dest =
          Specs_format.StringMap.find_opt p.source acc
          |> Option.value ~default:Specs_format.StringMap.empty
@@ -66,7 +66,7 @@ let compute_movements postings =
 
 let apply_postings initial_balances postings =
   List.fold_left
-    (fun balances (p : Run.posting) ->
+    (fun balances (p : Common.posting) ->
        let key_src = p.source, p.asset in
        let key_dst = p.destination, p.asset in
        let src_bal =
@@ -92,10 +92,10 @@ let format_posting source destination asset amount =
         ])
 ;;
 
-let check_postings (actual : Run.posting list) expected fail =
+let check_postings (actual : Common.posting list) expected fail =
   let n_actual = List.length actual in
   let n_expected = List.length expected in
-  let posting_matches (a : Run.posting) (e : Specs_format.posting) =
+  let posting_matches (a : Common.posting) (e : Specs_format.posting) =
     a.source = e.source
     && a.destination = e.destination
     && a.asset = e.asset
@@ -110,7 +110,7 @@ let check_postings (actual : Run.posting list) expected fail =
     let fmt_expected (e : Specs_format.posting) =
       format_posting e.source e.destination e.asset (int_of_float e.amount)
     in
-    let fmt_actual (a : Run.posting) =
+    let fmt_actual (a : Common.posting) =
       format_posting a.source a.destination a.asset (Int64.to_int a.amount)
     in
     let exp_lines = String.concat "\n" (List.map fmt_expected expected) in
@@ -195,14 +195,12 @@ let check_movements actual_movements expected fail =
     expected
 ;;
 
-[@@@warning "-11"]
-
 let run_assertions ~initial_balances (tc : Specs_format.test_case) result =
   let failures = ref [] in
   let fail msg = failures := msg :: !failures in
   (match result, tc.expect_error_missing_funds with
-   | Error (`Runtime Run.MissingFunds), Some true -> ()
-   | Error (`Runtime Run.MissingFunds), _ -> fail "unexpected missing funds error"
+   | Error (`Runtime Common.MissingFunds), Some true -> ()
+   | Error (`Runtime Common.MissingFunds), _ -> fail "unexpected missing funds error"
    | Ok _, Some true -> fail "expected missing funds error but script succeeded"
    | Ok postings, _ ->
      (match tc.expect_postings with
@@ -303,7 +301,7 @@ let cmd_test path =
   if !any_failed then exit 1
 ;;
 
-let posting_to_json (p : Run.posting) =
+let posting_to_json (p : Common.posting) =
   `Assoc
     [ "source", `String p.source
     ; "destination", `String p.destination
@@ -337,7 +335,7 @@ let cmd_run script_path =
     inputs.variables |> Option.fold ~none:Run.StringMap.empty ~some:inputs_vars_to_run
   in
   match Run.run_program ~vars ~balances ast with
-  | Error (`Runtime Run.MissingFunds) ->
+  | Error (`Runtime Common.MissingFunds) ->
     Printf.eprintf "error: missing funds\n";
     exit 1
   | Error _ ->

@@ -63,7 +63,7 @@ let resolve_allotment ctx allots eval_item =
         | _ -> None)
       tagged
   in
-  let lc = List.fold_left (fun acc (_, d) -> Common.lcm acc d) 1L fixed in
+  let lc = List.fold_left (fun acc (_, d) -> Internal_common.lcm acc d) 1L fixed in
   let sum_fixed =
     List.fold_left
       (fun acc (n, d) -> Int64.add acc (Int64.mul n (Int64.div lc d)))

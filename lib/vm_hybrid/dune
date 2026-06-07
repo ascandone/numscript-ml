@@ -1,6 +1,6 @@
 (library
  (name vm_hybrid)
- (libraries syntax portion)
+ (libraries syntax portion common)
  (inline_tests)
  (preprocess
   (pps ppx_expect ppx_deriving.show)))

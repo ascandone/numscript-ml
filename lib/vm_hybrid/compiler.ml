@@ -7,7 +7,7 @@ type var_resolution =
 
 type ctx =
   { string_like_constants : string Stack.t
-  ; vars : (string, var_resolution * Program.expr_typ) Hashtbl.t
+  ; vars : (string, var_resolution * Common.expr_typ) Hashtbl.t
   ; int_constants : int64 Stack.t
   ; array_constants : int array Stack.t
   ; expr_bytecode : Program.op_expr Stack.t
@@ -255,20 +255,9 @@ let stack_to_array_patched ~patches stack =
   |> Array.of_list
 ;;
 
-let parse_typ typ_name =
-  match typ_name with
-  | "account" -> Ok Program.ExprTyp_Account
-  | "asset" -> Ok Program.ExprTyp_Asset
-  | "string" -> Ok Program.ExprTyp_String
-  | "number" -> Ok Program.ExprTyp_Number
-  | "portion" -> Ok Program.ExprTyp_Portion
-  | "monetary" -> Ok Program.ExprTyp_Monetary
-  | _ -> Error (InvalidType typ_name)
-;;
-
 let compile_var ctx (var : Ast.var) =
   let ( let* ) = Result.bind in
-  let* typ = parse_typ var.typ in
+  let* typ = Common.parse_typ var.typ |> Option.to_result ~none:(InvalidType var.typ) in
   let* binding =
     match var.value with
     | None ->

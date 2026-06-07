@@ -13,12 +13,3 @@ module PairsMap = Map.Make (StringPair)
 type 't pairs_map = 't PairsMap.t
 
 module StringMap = Map.Make (String)
-
-type run_error = MissingFunds
-
-type posting =
-  { source : string
-  ; destination : string
-  ; asset : string
-  ; amount : int64
-  }

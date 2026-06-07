@@ -1,4 +1,5 @@
 include Run_intf
+open Common
 
 type stacks =
   { string_like : string Stack.t
@@ -9,13 +10,11 @@ type stacks =
 
 type ctx =
   { current_asset : string
-  ; balances : (string * string, int64) Hashtbl.t
   ; vars : string StringMap.t
-  ; sources : (string * int64) Dynarray.t
-  ; postings : posting Queue.t
   ; program : Program.t
   ; stacks : stacks
   ; pc : int ref
+  ; run_state : Run_state.run_state
   }
 
 let min_opt n = function
@@ -23,81 +22,22 @@ let min_opt n = function
   | Some n1 -> min n n1
 ;;
 
-let get_account_balance ctx name =
-  Hashtbl.find_opt ctx.balances (name, ctx.current_asset) |> Option.value ~default:0L
-;;
-
-let send ctx name amt =
-  let current_bal = get_account_balance ctx name in
-  Hashtbl.replace ctx.balances (name, ctx.current_asset) (Int64.sub current_bal amt);
-  Dynarray.add_last ctx.sources (name, amt);
-  amt
-;;
-
-let pop_first_opt (da : 'a Dynarray.t) : 'a option =
-  match Dynarray.to_list da with
-  | [] -> None
-  | x :: rest ->
-    Dynarray.clear da;
-    List.iter (Dynarray.add_last da) rest;
-    Some x
-;;
-
-let add_left (da : 'a Dynarray.t) (x : 'a) : unit =
-  let temp = Dynarray.to_list da in
-  Dynarray.clear da;
-  Dynarray.add_last da x;
-  List.iter (Dynarray.add_last da) temp
-;;
-
-let rec send_to_acc ctx destination ~dest_cap =
-  if dest_cap <= 0L
-  then ()
-  else (
-    match pop_first_opt ctx.sources with
-    | None -> ()
-    | Some (source, avl_amt) ->
-      let add amount =
-        if amount > 0L
-        then (
-          Queue.add
-            { source; destination; amount; asset = ctx.current_asset }
-            ctx.postings;
-          let dst_bal =
-            Hashtbl.find_opt ctx.balances (destination, ctx.current_asset)
-            |> Option.value ~default:0L
-          in
-          Hashtbl.replace
-            ctx.balances
-            (destination, ctx.current_asset)
-            (Int64.add dst_bal amount))
-      in
-      if avl_amt >= dest_cap
-      then (
-        add dest_cap;
-        let diff = Int64.sub avl_amt dest_cap in
-        if diff > 0L then add_left ctx.sources (source, diff))
-      else (
-        add avl_amt;
-        send_to_acc ctx destination ~dest_cap:(Int64.sub dest_cap avl_amt)))
-;;
-
 exception RunError of run_error
 
 let parse_var ctx ~typ ~name ~value =
   match typ with
-  | Program.ExprTyp_Account | Program.ExprTyp_Asset | Program.ExprTyp_String ->
+  | Common.ExprTyp_Account | Common.ExprTyp_Asset | Common.ExprTyp_String ->
     (* For those types, we don't need to parse anything *)
     Stack.push value ctx.stacks.string_like
-  | Program.ExprTyp_Number ->
+  | Common.ExprTyp_Number ->
     let parsed_num =
       match Int64.of_string_opt value with
       | None -> raise (RunError (InvalidVarSyntax { typ; value }))
       | Some parsed_num -> parsed_num
     in
     Stack.push parsed_num ctx.stacks.int
-  | Program.ExprTyp_Portion -> failwith "[TODO] impl portion parsing"
-  | Program.ExprTyp_Monetary -> failwith "[TODO] impl monetary parsing"
+  | Common.ExprTyp_Portion -> failwith "[TODO] impl portion parsing"
+  | Common.ExprTyp_Monetary -> failwith "[TODO] impl monetary parsing"
 ;;
 
 let eval_bytecode (ctx : ctx) =
@@ -168,8 +108,10 @@ let rec pull_source ?cap ctx =
     (* -- parse *)
     let name = eval_expr_by_idx ctx account_expr_idx ~stack:ctx.stacks.string_like in
     (* -- eval *)
-    let acc_balance = int64_to_non_neg @@ get_account_balance ctx name in
-    send ctx name (min_opt acc_balance cap)
+    let acc_balance =
+      int64_to_non_neg @@ Run_state.get_account_balance ctx.run_state name
+    in
+    Run_state.send ctx.run_state name (min_opt acc_balance cap)
   | Program.Src_AccountUnbounded { account_expr_idx } ->
     (* -- parse *)
     let name = eval_expr_by_idx ctx account_expr_idx ~stack:ctx.stacks.string_like in
@@ -181,7 +123,7 @@ let rec pull_source ?cap ctx =
         failwith "[unreachable] invalid unbounded source in unbounded mode"
       | Some cap -> cap
     in
-    send ctx name amt
+    Run_state.send ctx.run_state name amt
   | Program.Src_AccountBoundedOverdraft { account_expr_idx; overdraft_expr_idx } ->
     (* -- parse *)
     let name = eval_expr_by_idx ctx account_expr_idx ~stack:ctx.stacks.string_like in
@@ -190,14 +132,14 @@ let rec pull_source ?cap ctx =
     in
     let max_overdraft_amount = int64_to_non_neg max_overdraft_amount in
     (* -- eval *)
-    let acc_balance = get_account_balance ctx name in
+    let acc_balance = Run_state.get_account_balance ctx.run_state name in
     let amt =
       match cap with
       | None -> int64_to_non_neg (Int64.add acc_balance max_overdraft_amount)
       | Some cap ->
         min cap (int64_to_non_neg (Int64.add acc_balance max_overdraft_amount))
     in
-    send ctx name amt
+    Run_state.send ctx.run_state name amt
   | Program.Src_Max { monetary_expr_idx } ->
     (* -- parse *)
     let _asset, max_cap =
@@ -273,7 +215,7 @@ let rec send_to_dest ctx ~cap =
   match op with
   | Program.Dest_Account { account_expr_idx } ->
     let account = eval_expr_by_idx ctx account_expr_idx ~stack:ctx.stacks.string_like in
-    send_to_acc ctx account ~dest_cap:cap
+    Run_state.send_to_acc ctx.run_state account ~dest_cap:cap
   | Program.Dest_Kept -> failwith "[TODO] impl kept"
   | Program.Dest_Max { monetary_expr_idx } ->
     (* TODO check asset *)
@@ -329,18 +271,16 @@ let run_compiled ~vars ~balances (program : Program.t) =
   in
   let run_ctx : ctx =
     { current_asset = ""
-    ; balances = PairsMap.to_seq balances |> Hashtbl.of_seq
     ; vars
-    ; sources = Dynarray.create ()
-    ; postings = Queue.create ()
     ; program
     ; stacks = empty_vm
     ; pc = ref 0
+    ; run_state = Run_state.create (PairsMap.to_seq balances |> Hashtbl.of_seq)
     }
   in
   match program.statements |> Array.iter (eval_statement run_ctx) with
   | exception RunError e -> Error e
-  | () -> Ok (run_ctx.postings |> Queue.to_seq |> List.of_seq)
+  | () -> Ok (run_ctx.run_state.postings |> Queue.to_seq |> List.of_seq)
 ;;
 
 let run_program ~vars ~balances program =

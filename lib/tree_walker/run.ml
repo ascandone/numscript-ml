@@ -1,30 +1,15 @@
 include Run_intf
+open Common
 
-exception RunError of run_error
+exception RunError of Common.run_error
 
-type ctx =
-  { current_asset : string
-  ; balances : (string * string, int64) Hashtbl.t
-  ; sources : (string * int64) Dynarray.t
-  ; postings : posting Queue.t
-  }
-
-let get_account_balance ctx name =
-  Hashtbl.find_opt ctx.balances (name, ctx.current_asset) |> Option.value ~default:0L
-;;
-
-let send ctx name amt =
-  let current_bal = get_account_balance ctx name in
-  Hashtbl.replace ctx.balances (name, ctx.current_asset) (Int64.sub current_bal amt);
-  Dynarray.add_last ctx.sources (name, amt);
-  amt
-;;
+type ctx = Run_state.run_state
 
 let calc_allot total portions_items =
   let portions = List.map fst portions_items in
   let items = List.map snd portions_items in
   let dens = List.map (fun (Ast_canonical.Portion (_, d)) -> d) portions in
-  let lc = List.fold_left Common.lcm 1L dens in
+  let lc = List.fold_left Internal_common.lcm 1L dens in
   let nums =
     List.map (fun (Ast_canonical.Portion (n, d)) -> Int64.mul n (Int64.div lc d)) portions
   in
@@ -48,10 +33,10 @@ let min_opt n = function
 (** Unbounded / Bounded pull with cap. Doesn't fail if we don't reach the cap. *)
 let rec pull_source ctx ?cap = function
   | Ast_canonical.SrcAccount name ->
-    let acc_balance = get_account_balance ctx name in
-    send ctx name (min_opt (max 0L acc_balance) cap)
+    let acc_balance = Run_state.get_account_balance ctx name in
+    Run_state.send ctx name (min_opt (max 0L acc_balance) cap)
   | Ast_canonical.SrcAccountOverdraft { account; max_overdraft } ->
-    let acc_balance = get_account_balance ctx account in
+    let acc_balance = Run_state.get_account_balance ctx account in
     let amt =
       match max_overdraft, cap with
       | None, None -> acc_balance
@@ -60,7 +45,7 @@ let rec pull_source ctx ?cap = function
       | Some (_, limit), Some cap ->
         min cap (max 0L (Int64.add acc_balance (max 0L limit)))
     in
-    send ctx account amt
+    Run_state.send ctx account amt
   | Ast_canonical.SrcMax (max_cap, sub_src) ->
     pull_source ctx ~cap:(max 0L (min_opt max_cap cap)) sub_src
   | Ast_canonical.SrcInorder srcs -> pull_sources_capped_inorder ctx ?cap srcs
@@ -105,41 +90,8 @@ let pop_first_opt (da : 'a Dynarray.t) : 'a option =
     Some x
 ;;
 
-(* TODO handle kept *)
-let rec send_to_acc ctx destination ~dest_cap =
-  if dest_cap <= 0L
-  then ()
-  else (
-    match pop_first_opt ctx.sources with
-    | None -> ()
-    | Some (source, avl_amt) ->
-      let add amount =
-        if amount > 0L
-        then (
-          Queue.add
-            { source; destination; amount; asset = ctx.current_asset }
-            ctx.postings;
-          let dst_bal =
-            Hashtbl.find_opt ctx.balances (destination, ctx.current_asset)
-            |> Option.value ~default:0L
-          in
-          Hashtbl.replace
-            ctx.balances
-            (destination, ctx.current_asset)
-            (Int64.add dst_bal amount))
-      in
-      if avl_amt >= dest_cap
-      then (
-        add dest_cap;
-        let diff = Int64.sub avl_amt dest_cap in
-        if diff > 0L then add_left ctx.sources (source, diff))
-      else (
-        add avl_amt;
-        send_to_acc ctx destination ~dest_cap:(Int64.sub dest_cap avl_amt)))
-;;
-
 let rec send_to_dest ctx ~amt_left = function
-  | Ast_canonical.DestAccount acc -> send_to_acc ctx acc ~dest_cap:amt_left
+  | Ast_canonical.DestAccount acc -> Run_state.send_to_acc ctx acc ~dest_cap:amt_left
   | Ast_canonical.DestInorder (dests, remaining) ->
     let amt_used =
       List.fold_left
@@ -166,13 +118,10 @@ and send_to_kept_or_dest ctx cap = function
         | None -> ()
         | Some (source, avl_amt) ->
           let restored = min avl_amt remaining in
-          let bal =
-            Hashtbl.find_opt ctx.balances (source, ctx.current_asset)
-            |> Option.value ~default:0L
-          in
+          let bal = Run_state.get_account_balance ctx !(ctx.current_asset) in
           Hashtbl.replace
             ctx.balances
-            (source, ctx.current_asset)
+            (source, !(ctx.current_asset))
             (Int64.add bal restored);
           if avl_amt > remaining
           then add_left ctx.sources (source, Int64.sub avl_amt remaining);
@@ -208,21 +157,15 @@ let flush_stmt_postings global_q stmt_q =
   |> List.iter (fun p -> Queue.add p global_q)
 ;;
 
-let run_stmt ctx = function
+let run_stmt (ctx : Run_state.run_state) = function
   | Ast_canonical.StmtSend { asset; amount; source; destination } ->
-    let global_q = ctx.postings in
-    let stmt_q = Queue.create () in
-    let ctx = { ctx with current_asset = asset; postings = stmt_q } in
+    ctx.current_asset := asset;
     let _amt_got = pull_amt ctx ~needed_amt:amount source in
-    send_to_dest ctx ~amt_left:amount destination;
-    flush_stmt_postings global_q stmt_q
+    send_to_dest ctx ~amt_left:amount destination
   | Ast_canonical.StmtSendAll { asset; source; destination } ->
-    let global_q = ctx.postings in
-    let stmt_q = Queue.create () in
-    let ctx = { ctx with current_asset = asset; postings = stmt_q } in
+    ctx.current_asset := asset;
     let amt_got = pull_source ctx source in
-    send_to_dest ctx ~amt_left:amt_got destination;
-    flush_stmt_postings global_q stmt_q
+    send_to_dest ctx ~amt_left:amt_got destination
   | Ast_canonical.Save _ -> failwith "TODO save"
 ;;
 
@@ -241,13 +184,7 @@ let parse_var ~typ ~raw_value =
 ;;
 
 let run_program ~vars ~balances (program : Syntax.Ast.program) =
-  let run_ctx : ctx =
-    { current_asset = ""
-    ; balances = PairsMap.to_seq balances |> Hashtbl.of_seq
-    ; sources = Dynarray.create ()
-    ; postings = Queue.create ()
-    }
-  in
+  let run_ctx : ctx = Run_state.create (PairsMap.to_seq balances |> Hashtbl.of_seq) in
   let eval_ctx : unit Eval_ast.ctx =
     { vars = Hashtbl.create 10
     ; balance_lookup =
