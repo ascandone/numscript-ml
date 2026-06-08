@@ -1,0 +1,80 @@
+type reg = int
+
+let pp_reg fmt = Format.fprintf fmt "$r%d"
+
+type unary_op =
+  [ `get_amount
+  | `get_asset
+  | `int_copy
+  ]
+[@@deriving show { with_path = false }]
+
+type binary_op =
+  [ `int_min
+  | `add_int
+  | `sub_int
+  | `mk_portion
+  | `mk_monetary
+  ]
+[@@deriving show { with_path = false }]
+
+type const_value =
+  [ `String of string
+  | `Int of int64
+  ]
+
+let pp_const_value fmt = function
+  | `String s -> Format.fprintf fmt "\"%s\"" s
+  | `Int n -> Format.fprintf fmt "%Ld" n
+;;
+
+type t =
+  | LoadConst of
+      { value : [ `String of string | `Int of int64 ]
+      ; dest : reg
+      }
+  | PullAccount of
+      { dest : reg
+      ; account : reg
+      ; cap : reg
+      }
+  | Label of string
+  | JmpIfZero of
+      { value : reg
+      ; label : string
+      }
+  | UnaryOp of
+      { op : unary_op
+      ; dest : reg
+      ; arg : reg
+      }
+  | BinaryOp of
+      { op : binary_op
+      ; dest : reg
+      ; left : reg
+      ; right : reg
+      }
+
+let pp fmt = function
+  | LoadConst { dest; value } ->
+    Format.fprintf fmt "%a <- load_const(%a)" pp_reg dest pp_const_value value
+  | PullAccount { dest; cap; account } ->
+    Format.fprintf fmt "%a <- pull_account(%a, %a)" pp_reg dest pp_reg account pp_reg cap
+  | Label label -> Format.fprintf fmt "#%s" label
+  | JmpIfZero { value; label } ->
+    Format.fprintf fmt "jmp_if_zero(%a, #%s)" pp_reg value label
+  | UnaryOp { dest; op; arg } ->
+    let op_name = show_unary_op op in
+    let op_name = String.sub op_name 1 (String.length op_name - 1) in
+    Format.fprintf fmt "%a <- %s(%a)" pp_reg dest op_name pp_reg arg
+  | BinaryOp { dest; op; left; right } ->
+    let op_name = show_binary_op op in
+    let op_name = String.sub op_name 1 (String.length op_name - 1) in
+    Format.fprintf fmt "%a <- %s(%a, %a)" pp_reg dest op_name pp_reg left pp_reg right
+;;
+
+let pp_program fmt =
+  Array.iter (fun i ->
+    pp fmt i;
+    Format.fprintf fmt "\n")
+;;

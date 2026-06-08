@@ -1,4 +1,4 @@
-type compiled_program = { instructions : Instruction.t array }
+type compiled_program = { instructions : Virtual_instruction.t array }
 [@@deriving show { with_path = false }]
 
 type compilation_err =
