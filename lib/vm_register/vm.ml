@@ -14,8 +14,6 @@ type t =
   ; regs : registers
   }
 
-let int64_to_non_neg = max 0L
-
 let run vm =
   let pc = ref 0 in
   while !pc < Array.length vm.instructions do
