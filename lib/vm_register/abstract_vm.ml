@@ -5,20 +5,27 @@ type runtime_value =
   | Value_Int of int64
   | Value_Portion of int64 * int64
   | Value_Monetary of string * int64
+[@@deriving show { with_path = false }]
+
+type exn +=
+  | TypeMismatch of
+      { expected : string
+      ; got : runtime_value
+      }
 
 let read_int = function
   | Value_Int n -> n
-  | _ -> failwith "type mismatch"
+  | got -> raise (TypeMismatch { expected = "int"; got })
 ;;
 
 let read_string = function
   | Value_String s -> s
-  | _ -> failwith "type mismatch"
+  | got -> raise (TypeMismatch { expected = "string"; got })
 ;;
 
 let read_monetary = function
   | Value_Monetary (x, y) -> x, y
-  | _ -> failwith "type mismatch"
+  | got -> raise (TypeMismatch { expected = "monetary"; got })
 ;;
 
 type t =
