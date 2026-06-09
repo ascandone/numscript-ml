@@ -3,5 +3,5 @@ val run_program
   -> balances:int64 Common.Run_state.PairsMap.t
   -> Syntax.Ast.program
   -> ( Common.posting list
-       , [> `Compilation of Compiler.compilation_err | `Runtime of Common.run_error ] )
+       , [> `Compilation of Common.compilation_err | `Runtime of Common.run_error ] )
        result

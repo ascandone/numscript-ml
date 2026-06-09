@@ -1,6 +1,14 @@
 include Compiler_intf
 open Syntax
 
+let rec iter_result f = function
+  | [] -> Ok ()
+  | hd :: tl ->
+    let ( let* ) = Result.bind in
+    let* () = f hd in
+    iter_result f tl
+;;
+
 type ctx =
   { instructions : Virtual_instruction.t Dynarray.t
   ; next_reg : int ref
@@ -70,9 +78,10 @@ let push_instruction_dest ctx get_instr =
 ;;
 
 let rec compile_source ~pulled_amt_reg ~cap_reg ctx (source : Ast.source) =
+  let ( let* ) = Result.bind in
   match source, cap_reg with
   | Ast.SrcAccountOverdraft { max_overdraft = None; _ }, None ->
-    failwith "compilation error: uncapped overdraft"
+    Error Common.UncappedOverdraft
   | Ast.SrcAccountOverdraft _, _ -> failwith "[TODO] overdraft"
   | Ast.SrcAccount name, None ->
     let _account_reg = compile_expr ctx name in
@@ -81,34 +90,40 @@ let rec compile_source ~pulled_amt_reg ~cap_reg ctx (source : Ast.source) =
     let account = compile_expr ctx name in
     push_instruction
       ctx
-      (Virtual_instruction.PullAccount { cap; account; dest = pulled_amt_reg })
+      (Virtual_instruction.PullAccount { cap; account; dest = pulled_amt_reg });
+    Ok ()
   | Ast.SrcInorder _, None -> failwith "compilation err: uncapped inorder"
   | Ast.SrcInorder srcs, Some outer_cap_reg ->
     (* TODO collapse together nested inorders *)
     let end_label = get_next_label_id ctx ~prefix:"inorder_end" in
-    let last_elem_index = List.length srcs - 1 in
     let inorder_cap =
       push_instruction_dest ctx (fun dest ->
         Virtual_instruction.UnaryOp { op = `int_copy; arg = outer_cap_reg; dest })
     in
-    List.iteri
-      (fun src_index src ->
-         let inner_pulled_amt_reg = get_fresh_dest ctx in
-         compile_source
-           ~pulled_amt_reg:inner_pulled_amt_reg
-           ~cap_reg:(Some inorder_cap)
-           ctx
-           src;
-         push_instruction
-           ctx
-           (Virtual_instruction.BinaryOp
-              { op = `add_int
-              ; dest = pulled_amt_reg
-              ; left = pulled_amt_reg
-              ; right = inner_pulled_amt_reg
-              });
-         if src_index < last_elem_index
-         then (
+    let rec loop = function
+      | [] -> Ok ()
+      | src :: srcs ->
+        let inner_pulled_amt_reg = get_fresh_dest ctx in
+        let* () =
+          compile_source
+            ~pulled_amt_reg:inner_pulled_amt_reg
+            ~cap_reg:(Some inorder_cap)
+            ctx
+            src
+        in
+        push_instruction
+          ctx
+          (Virtual_instruction.BinaryOp
+             { op = `add_int
+             ; dest = pulled_amt_reg
+             ; left = pulled_amt_reg
+             ; right = inner_pulled_amt_reg
+             });
+        (match srcs with
+         | [] ->
+           (* Last expression: no jumps needed *)
+           Ok ()
+         | _ ->
            (* inorder_cap -= pulled_amt *)
            push_instruction
              ctx
@@ -120,9 +135,12 @@ let rec compile_source ~pulled_amt_reg ~cap_reg ctx (source : Ast.source) =
                 });
            push_instruction
              ctx
-             (Virtual_instruction.JmpIfZero { value = inorder_cap; label = end_label })))
-      srcs;
-    push_instruction ctx (Virtual_instruction.Label end_label)
+             (Virtual_instruction.JmpIfZero { value = inorder_cap; label = end_label });
+           loop srcs)
+    in
+    let* () = loop srcs in
+    push_instruction ctx (Virtual_instruction.Label end_label);
+    Ok ()
   | Ast.SrcMax (clause_cap, sub_src), _ ->
     let clause_cap_monetary_reg = compile_expr ctx clause_cap in
     let clause_cap_int_reg =
@@ -146,12 +164,15 @@ let compile_dest ~pulled_amt_reg ctx = function
   (* TODO *)
   | Ast.DestAccount account_expr ->
     let account = compile_expr ctx account_expr in
-    push_instruction ctx (Virtual_instruction.SendToAccount { account; cap = None })
+    push_instruction ctx (Virtual_instruction.SendToAccount { account; cap = None });
+    Ok ()
   | Ast.DestAllotment _ -> failwith "[TODO] impl allotment dest"
   | Ast.DestInorder _ -> failwith "[TODO] impl inorder dest"
 ;;
 
-let compile_stmt ctx = function
+let compile_stmt ctx =
+  let ( let* ) = Result.bind in
+  function
   | Ast.StmtSend { monetary; source; destination } ->
     let pulled_amt_reg =
       push_instruction_dest ctx (fun dest ->
@@ -167,8 +188,9 @@ let compile_stmt ctx = function
       push_instruction_dest ctx (fun dest ->
         Virtual_instruction.UnaryOp { op = `get_amount; arg = monetary_reg; dest })
     in
-    compile_source ~pulled_amt_reg ~cap_reg:(Some cap_reg) ctx source;
-    compile_dest ~pulled_amt_reg ctx destination
+    let* () = compile_source ~pulled_amt_reg ~cap_reg:(Some cap_reg) ctx source in
+    let* () = compile_dest ~pulled_amt_reg ctx destination in
+    Ok ()
   | Ast.StmtSendAll { asset; source; destination } ->
     let pulled_amt_reg =
       push_instruction_dest ctx (fun dest ->
@@ -176,17 +198,19 @@ let compile_stmt ctx = function
     in
     let asset_reg = compile_expr ctx asset in
     push_instruction ctx (Virtual_instruction.SetCurrentAsset { asset = asset_reg });
-    compile_source ~pulled_amt_reg ~cap_reg:None ctx source;
-    compile_dest ~pulled_amt_reg ctx destination
+    let* () = compile_source ~pulled_amt_reg ~cap_reg:None ctx source in
+    let* () = compile_dest ~pulled_amt_reg ctx destination in
+    Ok ()
   | Ast.Save _ -> failwith "[TODO] compile stmt"
   | Ast.FnStatement _ -> failwith "[TODO] compile stmt"
 ;;
 
 let compile_parsed (program : Ast.program) =
+  let ( let* ) = Result.bind in
   let ctx : ctx =
     { instructions = Dynarray.create (); next_reg = ref 0; next_label_id = ref 0 }
   in
-  List.iter (compile_stmt ctx) program.statements;
+  let* () = iter_result (compile_stmt ctx) program.statements in
   let compiled : compiled_program =
     { instructions = Dynarray.to_array ctx.instructions }
   in
@@ -198,7 +222,7 @@ let test_compiled source =
   let result = compile_parsed parsed_ast in
   let compiled_program =
     match result with
-    | Error e -> failwith (show_compilation_err e)
+    | Error e -> failwith (Common.show_compilation_err e)
     | Ok compiled -> compiled
   in
   Format.printf "%a" Virtual_instruction.pp_program compiled_program.instructions
