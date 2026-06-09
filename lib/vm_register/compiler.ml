@@ -13,6 +13,7 @@ type ctx =
   { instructions : Virtual_instruction.t Dynarray.t
   ; next_reg : int ref
   ; next_label_id : int ref
+  ; typecheck_state : Typecheck_instruction.typecheck_state
   }
 
 let get_fresh_dest ctx =
@@ -29,7 +30,16 @@ let get_next_label_id ctx ~prefix =
   | _ -> Format.sprintf "%s_%d" prefix value
 ;;
 
-let push_instruction ctx instr = Dynarray.add_last ctx.instructions instr
+let push_instruction ctx instr =
+  Typecheck_instruction.push_instruction ctx.typecheck_state instr;
+  Dynarray.add_last ctx.instructions instr
+;;
+
+let push_instruction_dest ctx get_instr =
+  let dest = get_fresh_dest ctx in
+  push_instruction ctx (get_instr dest);
+  dest
+;;
 
 let binop_of_infix (expr : Ast.binop) : Virtual_instruction.binary_op =
   match expr with
@@ -66,14 +76,6 @@ and compile_infix ~dest ~(op : Virtual_instruction.binary_op) ctx left right =
 and compile_expr ctx expr =
   let dest = get_fresh_dest ctx in
   compile_expr_to ctx ~dest expr;
-  dest
-;;
-
-let push_instruction ctx instr = Dynarray.add_last ctx.instructions instr
-
-let push_instruction_dest ctx get_instr =
-  let dest = get_fresh_dest ctx in
-  push_instruction ctx (get_instr dest);
   dest
 ;;
 
@@ -154,14 +156,13 @@ let rec compile_source ~pulled_amt_reg ~cap_reg ctx (source : Ast.source) =
       | Some outer_cap_reg ->
         push_instruction_dest ctx (fun dest ->
           Virtual_instruction.BinaryOp
-            { op = `int_min; left = clause_cap_int_reg; right = outer_cap_reg; dest })
+            { op = `min_int; left = clause_cap_int_reg; right = outer_cap_reg; dest })
     in
     compile_source ~pulled_amt_reg ~cap_reg:(Some cap_reg) ctx sub_src
   | Ast.SrcAllotment _, _ -> failwith "[TODO] impl allot"
 ;;
 
 let compile_dest ~pulled_amt_reg ctx = function
-  (* TODO *)
   | Ast.DestAccount account_expr ->
     let account = compile_expr ctx account_expr in
     push_instruction ctx (Virtual_instruction.SendToAccount { account; cap = None });
@@ -208,7 +209,11 @@ let compile_stmt ctx =
 let compile_parsed (program : Ast.program) =
   let ( let* ) = Result.bind in
   let ctx : ctx =
-    { instructions = Dynarray.create (); next_reg = ref 0; next_label_id = ref 0 }
+    { instructions = Dynarray.create ()
+    ; next_reg = ref 0
+    ; next_label_id = ref 0
+    ; typecheck_state = Typecheck_instruction.create_state ()
+    }
   in
   let* () = iter_result (compile_stmt ctx) program.statements in
   let compiled : compiled_program =
@@ -219,7 +224,11 @@ let compile_parsed (program : Ast.program) =
 
 let test_compiled source =
   let parsed_ast = Syntax.Parser.parse source in
-  let result = compile_parsed parsed_ast in
+  let result =
+    try compile_parsed parsed_ast with
+    | Typecheck_instruction.TypecheckErr err ->
+      failwith (Typecheck_instruction.show_typecheck_err err)
+  in
   let compiled_program =
     match result with
     | Error e -> failwith (Common.show_compilation_err e)
@@ -313,7 +322,7 @@ let%expect_test "top level max" =
     $r8 <- load_const(5)
     $r6 <- mk_monetary($r7, $r8)
     $r9 <- get_amount($r6)
-    $r10 <- int_min($r9, $r5)
+    $r10 <- min_int($r9, $r5)
     $r11 <- load_const("s1")
     $r0 <- pull_account($r11, $r10)
     $r12 <- load_const("dest")
@@ -370,7 +379,7 @@ let%expect_test "capped + inorder" =
     $r11 <- load_const(5)
     $r9 <- mk_monetary($r10, $r11)
     $r12 <- get_amount($r9)
-    $r13 <- int_min($r12, $r7)
+    $r13 <- min_int($r12, $r7)
     $r14 <- load_const("s1")
     $r8 <- pull_account($r14, $r13)
     $r0 <- add_int($r0, $r8)

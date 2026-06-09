@@ -10,7 +10,7 @@ type unary_op =
 [@@deriving show { with_path = false }]
 
 type binary_op =
-  [ `int_min
+  [ `min_int
   | `add_int
   | `sub_int
   | `mk_portion
