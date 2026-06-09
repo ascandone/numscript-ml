@@ -253,7 +253,7 @@ let compile_parsed (program : Ast.program) =
   Ok compiled
 ;;
 
-let test_compiled source =
+let test_compiled ?(optimizations_lst = []) source =
   let parsed_ast = Syntax.Parser.parse source in
   let result =
     try compile_parsed parsed_ast with
@@ -265,7 +265,11 @@ let test_compiled source =
     | Error e -> failwith (Common.show_compilation_err e)
     | Ok compiled -> compiled
   in
-  Format.printf "%a" Virtual_instruction.pp_program compiled_program.instructions
+  let optimization = Peephole.find_fixed_point (Peephole.merge optimizations_lst) in
+  let optimized_instructions =
+    Peephole.apply optimization compiled_program.instructions
+  in
+  Format.printf "%a" Virtual_instruction.pp_program optimized_instructions
 ;;
 
 let%expect_test "empty program" =
@@ -411,6 +415,39 @@ let%expect_test "capped + inorder" =
     $r9 <- mk_monetary($r10, $r11)
     $r12 <- get_amount($r9)
     $r13 <- min_int($r12, $r7)
+    $r14 <- load_const("s1")
+    $r8 <- pull_account($r14, $r13)
+    $r0 <- add_int($r0, $r8)
+    $r7 <- sub_int($r7, $r8)
+    jmp_if_zero($r7, #inorder_end)
+    $r16 <- load_const("s2")
+    $r15 <- pull_account($r16, $r7)
+    $r0 <- add_int($r0, $r15)
+    #inorder_end
+    $r17 <- load_const("dest")
+    send_to_account_uncapped($r17)
+    |}]
+;;
+
+let%expect_test "capped + inorder (optimized)" =
+  test_compiled
+    ~optimizations_lst:[ Peephole_const_fold.apply; Peephole_dce.apply ]
+    {|
+    send [USD/2 10] (
+      source = {
+        max [USD/2 5] from @s1
+        @s2
+      }
+      destination = @dest
+    )
+  |};
+  [%expect
+    {|
+    $r0 <- load_const(0)
+    $r4 <- load_const("USD/2")
+    set_current_asset($r4)
+    $r7 <- load_const(10)
+    $r13 <- load_const(5)
     $r14 <- load_const("s1")
     $r8 <- pull_account($r14, $r13)
     $r0 <- add_int($r0, $r8)
