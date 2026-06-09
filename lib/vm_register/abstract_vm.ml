@@ -3,7 +3,7 @@ open Common
 type runtime_value =
   | Value_String of string
   | Value_Int of int64
-  | Value_Portion of int64 * int64
+  | Value_Portion of Portion.t
   | Value_Monetary of string * int64
 [@@deriving show { with_path = false }]
 
@@ -26,6 +26,11 @@ let read_string = function
 let read_monetary = function
   | Value_Monetary (x, y) -> x, y
   | got -> raise (TypeMismatch { expected = "monetary"; got })
+;;
+
+let read_portion = function
+  | Value_Portion x -> x
+  | got -> raise (TypeMismatch { expected = "portion"; got })
 ;;
 
 type t =
@@ -78,7 +83,18 @@ let run_raise ~vars:_ ~balances vm =
     | LoadConst { dest; value = `String str } -> vm.regs.(dest) <- Value_String str
     | Label _ -> ()
     | LoadConst { dest; value = `Int n } -> vm.regs.(dest) <- Value_Int n
-    | MkAllotment _ -> failwith "[TODO] mkallot runtime"
+    | MkAllotment { dest_start; amount; portions_arr = por_start, por_len } ->
+      let cap = read_int vm.regs.(amount) in
+      let portions_array =
+        Array.init por_len (fun por_idx -> read_portion vm.regs.(por_start + por_idx))
+      in
+      let allots = Common.calc_allot ~portions_array ~cap in
+      Array.iteri
+        (fun idx allot_amt ->
+           (* *)
+           vm.regs.(dest_start + idx) <- Value_Int allot_amt;
+           ())
+        allots
     | PullAccount { dest; account; overdraft; cap } ->
       let account = read_string vm.regs.(account) in
       let overdraft_bound =
@@ -127,9 +143,9 @@ let run_raise ~vars:_ ~balances vm =
       let right = read_int vm.regs.(right) in
       vm.regs.(dest) <- Value_Int (Int64.min left right)
     | BinaryOp { op = `mk_portion; dest; left; right } ->
-      let left = read_int vm.regs.(left) in
-      let right = read_int vm.regs.(right) in
-      vm.regs.(dest) <- Value_Portion (left, right)
+      let num = read_int vm.regs.(left) in
+      let den = read_int vm.regs.(right) in
+      vm.regs.(dest) <- Value_Portion (Portion.create ~num ~den)
     | UnaryOp { op = `int_copy; dest; arg } ->
       let n = read_int vm.regs.(arg) in
       vm.regs.(dest) <- Value_Int n

@@ -10,3 +10,4 @@ val sub : t -> t -> t
 val mul : t -> t -> t
 val div : t -> t -> t
 val inv : t -> t
+val pp : Format.formatter -> t -> unit

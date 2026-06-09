@@ -37,3 +37,4 @@ let sub p1 p2 =
 let mul p1 p2 = create ~num:(Int64.mul p1.num p2.num) ~den:(Int64.mul p1.den p2.den)
 let inv p = create ~num:p.den ~den:p.num
 let div p1 p2 = mul p1 (inv p2)
+let pp fmt por = Format.fprintf fmt "%Ld/%Ld" por.num por.den
