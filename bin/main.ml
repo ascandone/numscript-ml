@@ -7,7 +7,6 @@ let trim_suffix ~suffix s =
   else s
 ;;
 
-(* ---- Conversion helpers ---- *)
 open Vm_hybrid
 
 let sf_pairs_to_run m =
