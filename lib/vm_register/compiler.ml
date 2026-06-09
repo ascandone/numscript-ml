@@ -92,7 +92,7 @@ let rec compile_source ~pulled_amt_reg ~cap_reg ctx (source : Ast.source) =
       ctx
       (Virtual_instruction.PullAccount { cap; account; dest = pulled_amt_reg });
     Ok ()
-  | Ast.SrcInorder _, None -> failwith "compilation err: uncapped inorder"
+  | Ast.SrcInorder _, None -> Error UncappedInorder
   | Ast.SrcInorder srcs, Some outer_cap_reg ->
     (* TODO collapse together nested inorders *)
     let end_label = get_next_label_id ctx ~prefix:"inorder_end" in
