@@ -142,11 +142,13 @@ let rec compile_source ~pulled_amt_reg ~cap_reg ctx (source : Ast.source) =
   | Ast.SrcAllotment _, _ -> failwith "[TODO] impl allot"
 ;;
 
-let compile_dest _ctx = function
+let compile_dest ~pulled_amt_reg ctx = function
   (* TODO *)
-  | Ast.DestAccount _ -> ()
-  | Ast.DestAllotment _ -> ()
-  | Ast.DestInorder _ -> ()
+  | Ast.DestAccount account_expr ->
+    let account = compile_expr ctx account_expr in
+    push_instruction ctx (Virtual_instruction.SendToAccount { account; cap = None })
+  | Ast.DestAllotment _ -> failwith "[TODO] impl allotment dest"
+  | Ast.DestInorder _ -> failwith "[TODO] impl inorder dest"
 ;;
 
 let compile_stmt ctx = function
@@ -161,7 +163,7 @@ let compile_stmt ctx = function
         Virtual_instruction.UnaryOp { op = `get_amount; arg = monetary_reg; dest })
     in
     compile_source ~pulled_amt_reg ~cap_reg:(Some cap_reg) ctx source;
-    compile_dest ctx destination
+    compile_dest ~pulled_amt_reg ctx destination
   | Ast.StmtSendAll { asset; source; destination } ->
     let pulled_amt_reg =
       push_instruction_dest ctx (fun dest ->
@@ -169,7 +171,7 @@ let compile_stmt ctx = function
     in
     let _asset_reg = compile_expr ctx asset in
     compile_source ~pulled_amt_reg ~cap_reg:None ctx source;
-    compile_dest ctx destination
+    compile_dest ~pulled_amt_reg ctx destination
   | Ast.Save _ -> failwith "[TODO] compile stmt"
   | Ast.FnStatement _ -> failwith "[TODO] compile stmt"
 ;;
