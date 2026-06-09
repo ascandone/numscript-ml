@@ -346,8 +346,11 @@ let cmd_run script_path =
   | Error (`Runtime MissingFunds) ->
     Printf.eprintf "error: missing funds\n";
     exit 1
-  | Error _ ->
-    Printf.eprintf "error: generic error\n";
+  | Error (`Runtime _) ->
+    Printf.eprintf "error: runtime error\n";
+    exit 1
+  | Error (`Compilation _) ->
+    Printf.eprintf "error: compilation error\n";
     exit 1
   | Ok postings ->
     let json = `Assoc [ "postings", `List (List.map posting_to_json postings) ] in
