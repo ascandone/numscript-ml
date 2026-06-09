@@ -85,6 +85,7 @@ let rec compile_source ~cap_reg ctx (source : Ast.source) =
   match source, cap_reg with
   | Ast.SrcAccountOverdraft { max_overdraft = None; _ }, None ->
     Error Common.UncappedOverdraft
+  | Ast.SrcAllotment _, None -> Error Common.UncappedAllotment
   | Ast.SrcAccountOverdraft _, _ -> failwith "[TODO] overdraft"
   | Ast.SrcAccount name, cap ->
     let account = compile_expr ctx name in
@@ -174,7 +175,7 @@ let rec compile_source ~cap_reg ctx (source : Ast.source) =
             { op = `min_int; left = clause_cap_int_reg; right = outer_cap_reg; dest })
     in
     compile_source ~cap_reg:(Some cap_reg) ctx sub_src
-  | Ast.SrcAllotment _, _ -> failwith "[TODO] impl allot"
+  | Ast.SrcAllotment _, Some _ -> failwith "[TODO] impl allot"
 
 and compile_source_with_required_amt ~cap_reg ctx src =
   let ( let* ) = Result.bind in
