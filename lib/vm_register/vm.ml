@@ -27,10 +27,7 @@ let run vm =
     | PullAccount { cap; account; tot } ->
       let cap = vm.regs.ints.(cap) in
       let account = vm.regs.strings.(account) in
-      let acc_balance =
-        int64_to_non_neg @@ Run_state.get_account_balance vm.run_state account
-      in
-      let pulled = Run_state.send vm.run_state account (min acc_balance cap) in
+      let pulled = Run_state.pull vm.run_state ~source:account ~cap in
       vm.regs.ints.(tot) <- Int64.add vm.regs.ints.(tot) pulled
     | AddInt { dest; left; right } ->
       let left = vm.regs.ints.(left) in

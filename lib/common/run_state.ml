@@ -18,11 +18,37 @@ let get_account_balance state name =
   |> Option.value ~default:0L
 ;;
 
-let send ctx name amt =
-  let current_bal = get_account_balance ctx name in
-  Hashtbl.replace ctx.balances (name, !(ctx.current_asset)) (Int64.sub current_bal amt);
-  Dynarray.add_last ctx.sources (name, amt);
-  amt
+let int64_to_non_neg = Int64.max 0L
+
+let pull ?(overdraft_bound = Some 0L) ~source ~cap ctx =
+  let cap = int64_to_non_neg cap in
+  let current_bal = get_account_balance ctx source in
+  let available_amount_to_pull =
+    match overdraft_bound with
+    | None -> cap
+    | Some bound ->
+      let bound = int64_to_non_neg bound in
+      let effective_balance = Int64.add current_bal bound in
+      let effective_balance = int64_to_non_neg effective_balance in
+      Int64.min effective_balance cap
+  in
+  Hashtbl.replace
+    ctx.balances
+    (source, !(ctx.current_asset))
+    (Int64.sub current_bal available_amount_to_pull);
+  Dynarray.add_last ctx.sources (source, available_amount_to_pull);
+  available_amount_to_pull
+;;
+
+(** Pre: can't be overdraft  *)
+let pull_uncapped ctx ~source =
+  let current_bal = get_account_balance ctx source in
+  if current_bal > 0L
+  then (
+    Hashtbl.remove ctx.balances (source, !(ctx.current_asset));
+    Dynarray.add_last ctx.sources (source, current_bal);
+    current_bal)
+  else 0L
 ;;
 
 let pop_first_opt (da : 'a Dynarray.t) : 'a option =
@@ -41,8 +67,8 @@ let add_left (da : 'a Dynarray.t) (x : 'a) : unit =
   List.iter (Dynarray.add_last da) temp
 ;;
 
-let rec send_to_acc ctx destination ~dest_cap =
-  if dest_cap <= 0L
+let rec send ~dest:destination ~cap ctx =
+  if cap <= 0L
   then ()
   else (
     match pop_first_opt ctx.sources with
@@ -63,12 +89,36 @@ let rec send_to_acc ctx destination ~dest_cap =
             (destination, !(ctx.current_asset))
             (Int64.add dst_bal amount))
       in
-      if avl_amt >= dest_cap
+      if avl_amt >= cap
       then (
-        add dest_cap;
-        let diff = Int64.sub avl_amt dest_cap in
+        add cap;
+        let diff = Int64.sub avl_amt cap in
         if diff > 0L then add_left ctx.sources (source, diff))
       else (
         add avl_amt;
-        send_to_acc ctx destination ~dest_cap:(Int64.sub dest_cap avl_amt)))
+        send ctx ~dest:destination ~cap:(Int64.sub cap avl_amt)))
+;;
+
+let rec send_uncapped ~dest:destination ctx =
+  match pop_first_opt ctx.sources with
+  | None -> ()
+  | Some (source, avl_amt) ->
+    if avl_amt > 0L
+    then (
+      Queue.add
+        { Common_intf.source
+        ; destination
+        ; amount = avl_amt
+        ; asset = !(ctx.current_asset)
+        }
+        ctx.postings;
+      let dst_bal =
+        Hashtbl.find_opt ctx.balances (destination, !(ctx.current_asset))
+        |> Option.value ~default:0L
+      in
+      Hashtbl.replace
+        ctx.balances
+        (destination, !(ctx.current_asset))
+        (Int64.add dst_bal avl_amt));
+    send_uncapped ~dest:destination ctx
 ;;

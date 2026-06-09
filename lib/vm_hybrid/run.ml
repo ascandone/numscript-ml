@@ -107,22 +107,21 @@ let rec pull_source ?cap ctx =
     (* -- parse *)
     let name = eval_expr_by_idx ctx account_expr_idx ~stack:ctx.stacks.string_like in
     (* -- eval *)
-    let acc_balance =
-      int64_to_non_neg @@ Run_state.get_account_balance ctx.run_state name
-    in
-    Run_state.send ctx.run_state name (min_opt acc_balance cap)
+    (match cap with
+     | None -> Run_state.pull_uncapped ctx.run_state ~source:name
+     | Some cap -> Run_state.pull ctx.run_state ~source:name ~cap)
   | Program.Src_AccountUnbounded { account_expr_idx } ->
     (* -- parse *)
     let name = eval_expr_by_idx ctx account_expr_idx ~stack:ctx.stacks.string_like in
     (* -- eval *)
-    let amt =
+    let cap =
       match cap with
       | None ->
         (* TODO double check this branch is unreachable *)
         failwith "[unreachable] invalid unbounded source in unbounded mode"
       | Some cap -> cap
     in
-    Run_state.send ctx.run_state name amt
+    Run_state.pull ctx.run_state ~overdraft_bound:None ~source:name ~cap
   | Program.Src_AccountBoundedOverdraft { account_expr_idx; overdraft_expr_idx } ->
     (* -- parse *)
     let name = eval_expr_by_idx ctx account_expr_idx ~stack:ctx.stacks.string_like in
@@ -138,7 +137,11 @@ let rec pull_source ?cap ctx =
       | Some cap ->
         min cap (int64_to_non_neg (Int64.add acc_balance max_overdraft_amount))
     in
-    Run_state.send ctx.run_state name amt
+    Run_state.pull
+      ~overdraft_bound:(Some max_overdraft_amount)
+      ctx.run_state
+      ~source:name
+      ~cap:amt
   | Program.Src_Max { monetary_expr_idx } ->
     (* -- parse *)
     let _asset, max_cap =
@@ -214,7 +217,7 @@ let rec send_to_dest ctx ~cap =
   match op with
   | Program.Dest_Account { account_expr_idx } ->
     let account = eval_expr_by_idx ctx account_expr_idx ~stack:ctx.stacks.string_like in
-    Run_state.send_to_acc ctx.run_state account ~dest_cap:cap
+    Run_state.send ctx.run_state ~dest:account ~cap
   | Program.Dest_Kept -> failwith "[TODO] impl kept"
   | Program.Dest_Max { monetary_expr_idx } ->
     (* TODO check asset *)
@@ -225,7 +228,7 @@ let rec send_to_dest ctx ~cap =
     send_to_dest ctx ~cap:(min cap clause_cap);
     if clause_cap < cap
     then
-      (* We can aboid continuing if we depleted fundings in the dest within "max" clause *)
+      (* We can avoid continuing if we depleted fundings in the dest within "max" clause *)
       send_to_dest ctx ~cap:(Int64.sub cap clause_cap)
 ;;
 

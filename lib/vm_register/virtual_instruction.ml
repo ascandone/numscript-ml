@@ -38,6 +38,10 @@ type t =
       ; account : reg
       ; cap : reg
       }
+  | SendToAccount of
+      { account : reg
+      ; cap : reg option
+      }
   | Label of string
   | JmpIfZero of
       { value : reg
@@ -58,6 +62,10 @@ type t =
 let pp fmt = function
   | LoadConst { dest; value } ->
     Format.fprintf fmt "%a <- load_const(%a)" pp_reg dest pp_const_value value
+  | SendToAccount { account; cap = None } ->
+    Format.fprintf fmt "send_to_account_uncapped(%a)" pp_reg account
+  | SendToAccount { account; cap = Some cap } ->
+    Format.fprintf fmt "send_to_account_capped(%a, %a)" pp_reg account pp_reg cap
   | PullAccount { dest; cap; account } ->
     Format.fprintf fmt "%a <- pull_account(%a, %a)" pp_reg dest pp_reg account pp_reg cap
   | Label label -> Format.fprintf fmt "#%s" label
