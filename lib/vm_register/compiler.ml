@@ -83,14 +83,36 @@ and compile_expr ctx expr =
 let rec compile_source ~cap_reg ctx (source : Ast.source) =
   let ( let* ) = Result.bind in
   match source, cap_reg with
-  | Ast.SrcAccountOverdraft { max_overdraft = None; _ }, None ->
-    Error Common.UncappedOverdraft
   | Ast.SrcAllotment _, None -> Error Common.UncappedAllotment
-  | Ast.SrcAccountOverdraft _, _ -> failwith "[TODO] overdraft"
+  | Ast.SrcAccountOverdraft { max_overdraft = None; _ }, None ->
+    Error Common.UncappedUnboundedOverdraft
+  | Ast.SrcAccountOverdraft { max_overdraft = None; account }, Some cap ->
+    let account = compile_expr ctx account in
+    let dest =
+      push_instruction_dest ctx (fun dest ->
+        Virtual_instruction.PullAccountUnboundedOverdraft { cap; account; dest })
+    in
+    Ok dest
+  | Ast.SrcAccountOverdraft { account; max_overdraft = Some max_overdraft }, cap ->
+    let account = compile_expr ctx account in
+    let overdraft_bound_monetary = compile_expr ctx max_overdraft in
+    let overdraft_bound_int =
+      push_instruction_dest ctx (fun dest ->
+        Virtual_instruction.UnaryOp
+          { op = `get_amount; arg = overdraft_bound_monetary; dest })
+    in
+    let dest =
+      push_instruction_dest ctx (fun dest ->
+        Virtual_instruction.PullAccount
+          { cap; account; dest; overdraft = `Bounded overdraft_bound_int })
+    in
+    Ok dest
   | Ast.SrcAccount name, cap ->
     let account = compile_expr ctx name in
     let dest = get_fresh_dest ctx in
-    push_instruction ctx (Virtual_instruction.PullAccount { cap; account; dest });
+    push_instruction
+      ctx
+      (Virtual_instruction.PullAccount { cap; account; dest; overdraft = `BoundedZero });
     Ok dest
   | Ast.SrcInorder srcs, None ->
     let inorder_total_reg =
@@ -309,7 +331,7 @@ let%expect_test "simple program" =
     set_current_asset($r3)
     $r4 <- get_amount($r0)
     $r5 <- load_const("src")
-    $r6 <- pull_account($r5, $r4)
+    $r6 <- pull_account(account: $r5, cap: $r4)
     check_enough_funds($r6, $r4)
     $r7 <- load_const("dest")
     send_to_account_uncapped($r7)
@@ -331,7 +353,7 @@ let%expect_test "simple program (optimized)" =
     set_current_asset($r3)
     $r4 <- load_const(10)
     $r5 <- load_const("src")
-    $r6 <- pull_account($r5, $r4)
+    $r6 <- pull_account(account: $r5, cap: $r4)
     check_enough_funds($r6, $r4)
     $r7 <- load_const("dest")
     send_to_account_uncapped($r7)
@@ -360,12 +382,12 @@ let%expect_test "inorder" =
     $r5 <- load_const(0)
     $r6 <- int_copy($r4)
     $r7 <- load_const("s1")
-    $r8 <- pull_account($r7, $r6)
+    $r8 <- pull_account(account: $r7, cap: $r6)
     $r5 <- add_int($r5, $r8)
     $r6 <- sub_int($r6, $r8)
     jmp_if_zero($r6, #inorder_end)
     $r9 <- load_const("s2")
-    $r10 <- pull_account($r9, $r6)
+    $r10 <- pull_account(account: $r9, cap: $r6)
     $r5 <- add_int($r5, $r10)
     #inorder_end
     check_enough_funds($r5, $r4)
@@ -396,7 +418,7 @@ let%expect_test "top level max" =
     $r8 <- get_amount($r5)
     $r9 <- min_int($r8, $r4)
     $r10 <- load_const("s1")
-    $r11 <- pull_account($r10, $r9)
+    $r11 <- pull_account(account: $r10, cap: $r9)
     check_enough_funds($r11, $r4)
     $r12 <- load_const("dest")
     send_to_account_uncapped($r12)
@@ -420,7 +442,7 @@ let%expect_test "top level max on unbounded" =
     $r1 <- mk_monetary($r2, $r3)
     $r4 <- get_amount($r1)
     $r5 <- load_const("s1")
-    $r6 <- pull_account($r5, $r4)
+    $r6 <- pull_account(account: $r5, cap: $r4)
     $r7 <- load_const("dest")
     send_to_account_uncapped($r7)
     |}]
@@ -453,12 +475,12 @@ let%expect_test "capped + inorder" =
     $r10 <- get_amount($r7)
     $r11 <- min_int($r10, $r6)
     $r12 <- load_const("s1")
-    $r13 <- pull_account($r12, $r11)
+    $r13 <- pull_account(account: $r12, cap: $r11)
     $r5 <- add_int($r5, $r13)
     $r6 <- sub_int($r6, $r13)
     jmp_if_zero($r6, #inorder_end)
     $r14 <- load_const("s2")
-    $r15 <- pull_account($r14, $r6)
+    $r15 <- pull_account(account: $r14, cap: $r6)
     $r5 <- add_int($r5, $r15)
     #inorder_end
     check_enough_funds($r5, $r4)
@@ -488,12 +510,12 @@ let%expect_test "capped + inorder (optimized)" =
     $r6 <- load_const(10)
     $r11 <- load_const(5)
     $r12 <- load_const("s1")
-    $r13 <- pull_account($r12, $r11)
+    $r13 <- pull_account(account: $r12, cap: $r11)
     $r5 <- add_int($r5, $r13)
     $r6 <- sub_int($r6, $r13)
     jmp_if_zero($r6, #inorder_end)
     $r14 <- load_const("s2")
-    $r15 <- pull_account($r14, $r6)
+    $r15 <- pull_account(account: $r14, cap: $r6)
     $r5 <- add_int($r5, $r15)
     #inorder_end
     check_enough_funds($r5, $r4)
@@ -521,7 +543,7 @@ let%expect_test "inorder dest remaining" =
     set_current_asset($r3)
     $r4 <- get_amount($r0)
     $r5 <- load_const("src")
-    $r6 <- pull_account($r5, $r4)
+    $r6 <- pull_account(account: $r5, cap: $r4)
     check_enough_funds($r6, $r4)
     $r7 <- load_const("dest")
     send_to_account_uncapped($r7)
@@ -548,7 +570,7 @@ let%expect_test "inorder dest clauses" =
     set_current_asset($r3)
     $r4 <- get_amount($r0)
     $r5 <- load_const("src")
-    $r6 <- pull_account($r5, $r4)
+    $r6 <- pull_account(account: $r5, cap: $r4)
     check_enough_funds($r6, $r4)
     $r8 <- load_const("USD/2")
     $r9 <- load_const(5)
@@ -575,7 +597,7 @@ let%expect_test "uncapped src" =
     $r0 <- load_const("USD/2")
     set_current_asset($r0)
     $r1 <- load_const("src")
-    $r2 <- pull_account_uncapped($r1)
+    $r2 <- pull_account(account: $r1)
     $r3 <- load_const("dest")
     send_to_account_uncapped($r3)
     |}]
@@ -598,12 +620,87 @@ let%expect_test "uncapped inorder" =
     set_current_asset($r0)
     $r1 <- load_const(0)
     $r2 <- load_const("src1")
-    $r3 <- pull_account_uncapped($r2)
+    $r3 <- pull_account(account: $r2)
     $r1 <- add_int($r1, $r3)
     $r4 <- load_const("src2")
-    $r5 <- pull_account_uncapped($r4)
+    $r5 <- pull_account(account: $r4)
     $r1 <- add_int($r1, $r5)
     $r6 <- load_const("dest")
     send_to_account_uncapped($r6)
+    |}]
+;;
+
+let%expect_test "unbounded overdraft" =
+  test_compiled
+    {|
+    send [USD/2 42] (
+      source = @src allowing unbounded overdraft
+      destination = @dest
+    )
+  |};
+  [%expect
+    {|
+    $r1 <- load_const("USD/2")
+    $r2 <- load_const(42)
+    $r0 <- mk_monetary($r1, $r2)
+    $r3 <- get_asset($r0)
+    set_current_asset($r3)
+    $r4 <- get_amount($r0)
+    $r5 <- load_const("src")
+    $r6 <- pull_account_unbounded_overdraft(account: $r5, cap: $r4)
+    check_enough_funds($r6, $r4)
+    $r7 <- load_const("dest")
+    send_to_account_uncapped($r7)
+    |}]
+;;
+
+let%expect_test "bounded overdraft (capped)" =
+  test_compiled
+    {|
+    send [USD/2 42] (
+      source = @src allowing overdraft up to [USD/2 5]
+      destination = @dest
+    )
+  |};
+  [%expect
+    {|
+    $r1 <- load_const("USD/2")
+    $r2 <- load_const(42)
+    $r0 <- mk_monetary($r1, $r2)
+    $r3 <- get_asset($r0)
+    set_current_asset($r3)
+    $r4 <- get_amount($r0)
+    $r5 <- load_const("src")
+    $r7 <- load_const("USD/2")
+    $r8 <- load_const(5)
+    $r6 <- mk_monetary($r7, $r8)
+    $r9 <- get_amount($r6)
+    $r10 <- pull_account(account: $r5, cap: $r4, overdraft: $r9)
+    check_enough_funds($r10, $r4)
+    $r11 <- load_const("dest")
+    send_to_account_uncapped($r11)
+    |}]
+;;
+
+let%expect_test "bounded overdraft (uncapped)" =
+  test_compiled
+    {|
+    send [USD/2 *] (
+      source = @src allowing overdraft up to [USD/2 5]
+      destination = @dest
+    )
+  |};
+  [%expect
+    {|
+    $r0 <- load_const("USD/2")
+    set_current_asset($r0)
+    $r1 <- load_const("src")
+    $r3 <- load_const("USD/2")
+    $r4 <- load_const(5)
+    $r2 <- mk_monetary($r3, $r4)
+    $r5 <- get_amount($r2)
+    $r6 <- pull_account(account: $r1, overdraft: $r5)
+    $r7 <- load_const("dest")
+    send_to_account_uncapped($r7)
     |}]
 ;;

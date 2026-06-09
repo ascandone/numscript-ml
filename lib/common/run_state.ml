@@ -40,15 +40,21 @@ let pull ?(overdraft_bound = Some 0L) ~source ~cap ctx =
   available_amount_to_pull
 ;;
 
-(** Pre: can't be overdraft  *)
-let pull_uncapped ctx ~source =
+(** 
+Pulls all of the source's balance
+Can't be unbounded overdraft
+*)
+let pull_uncapped ?(overdraft_bound = 0L) ~source ctx =
   let current_bal = get_account_balance ctx source in
-  if current_bal > 0L
+  let available = Int64.max 0L (Int64.add current_bal overdraft_bound) in
+  if available > 0L
   then (
-    Hashtbl.remove ctx.balances (source, !(ctx.current_asset));
-    Dynarray.add_last ctx.sources (source, current_bal);
-    current_bal)
-  else 0L
+    Hashtbl.replace
+      ctx.balances
+      (source, !(ctx.current_asset))
+      (Int64.sub current_bal available);
+    Dynarray.add_last ctx.sources (source, available));
+  available
 ;;
 
 let pop_first_opt (da : 'a Dynarray.t) : 'a option =

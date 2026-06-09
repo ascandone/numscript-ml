@@ -35,9 +35,16 @@ let push_instruction state =
   | Virtual_instruction.CheckEnoughFunds { got; needed } ->
     check_reg got Reg_type.int;
     check_reg needed Reg_type.int
-  | Virtual_instruction.PullAccount { dest; account; cap } ->
+  | Virtual_instruction.PullAccount { dest; account; cap; overdraft } ->
     check_reg account Reg_type.string;
     Option.iter (fun cap -> check_reg cap Reg_type.int) cap;
+    (match overdraft with
+     | `Bounded reg -> check_reg reg Reg_type.int
+     | `BoundedZero -> ());
+    declare_reg dest Reg_type.int
+  | Virtual_instruction.PullAccountUnboundedOverdraft { dest; account; cap } ->
+    check_reg account Reg_type.string;
+    check_reg cap Reg_type.int;
     declare_reg dest Reg_type.int
   | Virtual_instruction.SendToAccount { account; cap } ->
     check_reg account Reg_type.string;

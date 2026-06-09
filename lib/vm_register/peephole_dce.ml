@@ -1,3 +1,8 @@
+let overdraft_to_reg_list = function
+  | `BoundedZero | `Unbounded -> []
+  | `Bounded reg -> [ reg ]
+;;
+
 let get_used_args =
   let open Virtual_instruction in
   function
@@ -6,8 +11,10 @@ let get_used_args =
   | UnaryOp { arg; _ } -> [ arg ]
   | JmpIfZero { value } -> [ value ]
   | CheckEnoughFunds { got; needed } -> [ got; needed ]
-  | SendToAccount { account; cap } | PullAccount { account; cap } ->
-    account :: Option.to_list cap
+  | SendToAccount { account; cap } -> account :: Option.to_list cap
+  | PullAccountUnboundedOverdraft { account; cap } -> [ account; cap ]
+  | PullAccount { account; cap; overdraft } ->
+    account :: List.concat [ Option.to_list cap; overdraft_to_reg_list overdraft ]
   | SetCurrentAsset { asset } -> [ asset ]
 ;;
 
@@ -19,6 +26,7 @@ let is_instruction_useful used_regs =
   | JmpIfZero _
   | CheckEnoughFunds _
   | PullAccount _
+  | PullAccountUnboundedOverdraft _
   | SetCurrentAsset _ -> true
   | LoadConst { dest } | BinaryOp { dest } | UnaryOp { dest } ->
     Hashtbl.mem used_regs dest

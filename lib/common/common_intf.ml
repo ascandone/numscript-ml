@@ -16,7 +16,7 @@ type run_error =
       }
 
 type compilation_err =
-  | UncappedOverdraft
+  | UncappedUnboundedOverdraft
   | UncappedAllotment
   | UnboundVar of string
   | InvalidType of string

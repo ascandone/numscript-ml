@@ -78,11 +78,26 @@ let run_raise ~vars:_ ~balances vm =
     | LoadConst { dest; value = `String str } -> vm.regs.(dest) <- Value_String str
     | Label _ -> ()
     | LoadConst { dest; value = `Int n } -> vm.regs.(dest) <- Value_Int n
-    | PullAccount { dest; account; cap = None } ->
+    | PullAccount { dest; account; overdraft; cap } ->
       let account = read_string vm.regs.(account) in
-      let pulled = Run_state.pull_uncapped vm.run_state ~source:account in
+      let overdraft_bound =
+        match overdraft with
+        | `Bounded overdraft_reg -> read_int vm.regs.(overdraft_reg)
+        | `BoundedZero -> 0L
+      in
+      let pulled =
+        match cap with
+        | None -> Run_state.pull_uncapped vm.run_state ~source:account ~overdraft_bound
+        | Some cap_reg ->
+          let cap = read_int vm.regs.(cap_reg) in
+          Run_state.pull
+            vm.run_state
+            ~source:account
+            ~cap
+            ~overdraft_bound:(Some overdraft_bound)
+      in
       vm.regs.(dest) <- Value_Int pulled
-    | PullAccount { dest; account; cap = Some cap } ->
+    | PullAccountUnboundedOverdraft { dest; account; cap } ->
       let cap = read_int vm.regs.(cap) in
       let account = read_string vm.regs.(account) in
       let pulled = Run_state.pull vm.run_state ~source:account ~cap in

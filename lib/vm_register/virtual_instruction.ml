@@ -38,6 +38,12 @@ type t =
       { dest : reg
       ; account : reg
       ; cap : reg option
+      ; overdraft : [ `BoundedZero | `Bounded of reg ]
+      }
+  | PullAccountUnboundedOverdraft of
+      { dest : reg
+      ; account : reg
+      ; cap : reg
       }
   | SendToAccount of
       { account : reg
@@ -74,10 +80,36 @@ let pp fmt = function
     Format.fprintf fmt "send_to_account_uncapped(%a)" pp_reg account
   | SendToAccount { account; cap = Some cap } ->
     Format.fprintf fmt "send_to_account_capped(%a, %a)" pp_reg account pp_reg cap
-  | PullAccount { dest; account; cap = Some cap } ->
-    Format.fprintf fmt "%a <- pull_account(%a, %a)" pp_reg dest pp_reg account pp_reg cap
-  | PullAccount { dest; account; cap = None } ->
-    Format.fprintf fmt "%a <- pull_account_uncapped(%a)" pp_reg dest pp_reg account
+  | PullAccount { dest; account; cap; overdraft } ->
+    let cap_label =
+      match cap with
+      | None -> ""
+      | Some cap -> Format.asprintf ", cap: %a" pp_reg cap
+    in
+    let overdraft_label =
+      match overdraft with
+      | `BoundedZero -> ""
+      | `Bounded reg -> Format.asprintf ", overdraft: %a" pp_reg reg
+    in
+    Format.fprintf
+      fmt
+      "%a <- pull_account(account: %a%s%s)"
+      pp_reg
+      dest
+      pp_reg
+      account
+      cap_label
+      overdraft_label
+  | PullAccountUnboundedOverdraft { dest; account; cap } ->
+    Format.fprintf
+      fmt
+      "%a <- pull_account_unbounded_overdraft(account: %a, cap: %a)"
+      pp_reg
+      dest
+      pp_reg
+      account
+      pp_reg
+      cap
   | Label label -> Format.fprintf fmt "#%s" label
   | JmpIfZero { value; label } ->
     Format.fprintf fmt "jmp_if_zero(%a, #%s)" pp_reg value label

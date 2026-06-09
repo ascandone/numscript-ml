@@ -39,7 +39,8 @@ let get_dest =
   | LoadConst { dest; _ }
   | UnaryOp { dest; _ }
   | BinaryOp { dest; _ }
-  | PullAccount { dest; _ } -> Some dest
+  | PullAccount { dest; _ }
+  | PullAccountUnboundedOverdraft { dest; _ } -> Some dest
   | JmpIfZero _ | Label _ | SendToAccount _ | SetCurrentAsset _ | CheckEnoughFunds _ ->
     None
 ;;
@@ -102,8 +103,12 @@ let eval (state : state) =
     None
   (* TODO by folding the CheckEnoughFunds we could throw early instead of runtime *)
   (* TODO(perf) fold JmpIfZero *)
-  | PullAccount _ | JmpIfZero _ | SendToAccount _ | SetCurrentAsset _ | CheckEnoughFunds _
-    -> None
+  | PullAccount _
+  | PullAccountUnboundedOverdraft _
+  | JmpIfZero _
+  | SendToAccount _
+  | SetCurrentAsset _
+  | CheckEnoughFunds _ -> None
 ;;
 
 let apply instructions =

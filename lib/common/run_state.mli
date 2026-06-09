@@ -12,7 +12,7 @@ val pull
   -> run_state
   -> int64
 
-val pull_uncapped : run_state -> source:string -> int64
+val pull_uncapped : ?overdraft_bound:int64 -> source:string -> run_state -> int64
 
 (* destination *)
 val send : dest:string -> cap:int64 -> run_state -> unit
