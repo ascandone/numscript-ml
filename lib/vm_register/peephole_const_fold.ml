@@ -36,6 +36,7 @@ type state = (int, value) Hashtbl.t
 let get_dest =
   let open Virtual_instruction in
   function
+  | MkAllotment _ -> failwith "[TODO] mkAllot"
   | LoadConst { dest; _ }
   | UnaryOp { dest; _ }
   | BinaryOp { dest; _ }
@@ -103,6 +104,8 @@ let eval (state : state) =
     None
   (* TODO by folding the CheckEnoughFunds we could throw early instead of runtime *)
   (* TODO(perf) fold JmpIfZero *)
+  (* TODO(perf) we could fold MkAllotment as well *)
+  | MkAllotment _
   | PullAccount _
   | PullAccountUnboundedOverdraft _
   | JmpIfZero _
@@ -117,6 +120,7 @@ let apply instructions =
   let mapped_instructions =
     List.map
       (fun instr ->
+         (* TODO(bug) it's not correct to compute them beforehand *)
          Option.iter (fun dest -> Hashtbl.remove state dest) (get_dest instr);
          match eval state instr with
          | None -> instr

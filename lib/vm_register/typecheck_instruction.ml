@@ -31,6 +31,15 @@ let push_instruction state =
       | `Int _ -> Reg_type.int
     in
     declare_reg dest typ
+  | Virtual_instruction.MkAllotment
+      { dest_start; amount; portions_arr = portions_start, len } ->
+    check_reg amount Reg_type.int;
+    for por = portions_start to portions_start + len - 1 do
+      check_reg por Reg_type.portion
+    done;
+    for dest = dest_start to dest_start + len - 1 do
+      declare_reg dest Reg_type.int
+    done
   | Virtual_instruction.SetCurrentAsset { asset } -> check_reg asset Reg_type.string
   | Virtual_instruction.CheckEnoughFunds { got; needed } ->
     check_reg got Reg_type.int;

@@ -78,6 +78,7 @@ let run_raise ~vars:_ ~balances vm =
     | LoadConst { dest; value = `String str } -> vm.regs.(dest) <- Value_String str
     | Label _ -> ()
     | LoadConst { dest; value = `Int n } -> vm.regs.(dest) <- Value_Int n
+    | MkAllotment _ -> failwith "[TODO] mkallot runtime"
     | PullAccount { dest; account; overdraft; cap } ->
       let account = read_string vm.regs.(account) in
       let overdraft_bound =

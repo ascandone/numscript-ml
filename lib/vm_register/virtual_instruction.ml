@@ -2,6 +2,10 @@ type reg = int
 
 let pp_reg fmt = Format.fprintf fmt "$r%d"
 
+let pp_reg_arr fmt (reg, len) =
+  Format.fprintf fmt "%a..%a" pp_reg reg pp_reg (reg + len - 1)
+;;
+
 type unary_op =
   [ `get_amount
   | `get_asset
@@ -44,6 +48,11 @@ type t =
       { dest : reg
       ; account : reg
       ; cap : reg
+      }
+  | MkAllotment of
+      { dest_start : reg
+      ; amount : reg
+      ; portions_arr : reg * int
       }
   | SendToAccount of
       { account : reg
@@ -110,6 +119,16 @@ let pp fmt = function
       account
       pp_reg
       cap
+  | MkAllotment { dest_start; amount; portions_arr = portions_start, len } ->
+    Format.fprintf
+      fmt
+      "%a <- mk_allot(%a, %a)"
+      pp_reg_arr
+      (dest_start, len)
+      pp_reg
+      amount
+      pp_reg_arr
+      (portions_start, len)
   | Label label -> Format.fprintf fmt "#%s" label
   | JmpIfZero { value; label } ->
     Format.fprintf fmt "jmp_if_zero(%a, #%s)" pp_reg value label

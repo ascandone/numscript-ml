@@ -6,6 +6,7 @@ let overdraft_to_reg_list = function
 let get_used_args =
   let open Virtual_instruction in
   function
+  | MkAllotment _ -> failwith "[TODO] mkallot"
   | LoadConst _ | Label _ -> []
   | BinaryOp { left; right } -> [ left; right ]
   | UnaryOp { arg; _ } -> [ arg ]
@@ -21,6 +22,7 @@ let get_used_args =
 let is_instruction_useful used_regs =
   let open Virtual_instruction in
   function
+  | MkAllotment _ -> failwith "[TODO] mkallot"
   | Label _
   | SendToAccount _
   | JmpIfZero _
