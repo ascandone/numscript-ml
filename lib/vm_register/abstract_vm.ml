@@ -96,9 +96,9 @@ let run_raise ~vars:_ ~balances vm =
       let right = read_int vm.regs.(right) in
       vm.regs.(dest) <- Value_Monetary (left, right)
     | BinaryOp { op = `int_min; dest; left; right } ->
-      let left = read_string vm.regs.(left) in
+      let left = read_int vm.regs.(left) in
       let right = read_int vm.regs.(right) in
-      vm.regs.(dest) <- Value_Monetary (left, right)
+      vm.regs.(dest) <- Value_Int (Int64.min left right)
     | BinaryOp { op = `mk_portion; dest; left; right } ->
       let left = read_int vm.regs.(left) in
       let right = read_int vm.regs.(right) in
