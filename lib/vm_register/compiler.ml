@@ -91,7 +91,27 @@ let rec compile_source ~cap_reg ctx (source : Ast.source) =
     let dest = get_fresh_dest ctx in
     push_instruction ctx (Virtual_instruction.PullAccount { cap; account; dest });
     Ok dest
-  | Ast.SrcInorder _, None -> Error UncappedInorder
+  | Ast.SrcInorder srcs, None ->
+    let inorder_total_reg =
+      push_instruction_dest ctx (fun dest ->
+        Virtual_instruction.LoadConst { value = `Int 0L; dest })
+    in
+    let* () =
+      iter_result
+        (fun src ->
+           let* pulled_reg = compile_source ctx ~cap_reg:None src in
+           push_instruction
+             ctx
+             (Virtual_instruction.BinaryOp
+                { op = `add_int
+                ; dest = inorder_total_reg
+                ; left = inorder_total_reg
+                ; right = pulled_reg
+                });
+           Ok ())
+        srcs
+    in
+    Ok inorder_total_reg
   | Ast.SrcInorder srcs, Some outer_cap_reg ->
     let inorder_total_reg =
       push_instruction_dest ctx (fun dest ->
@@ -557,5 +577,32 @@ let%expect_test "uncapped src" =
     $r2 <- pull_account_uncapped($r1)
     $r3 <- load_const("dest")
     send_to_account_uncapped($r3)
+    |}]
+;;
+
+let%expect_test "uncapped inorder" =
+  test_compiled
+    {|
+    send [USD/2 *] (
+      source = {
+        @src1
+        @src2
+      }
+      destination = @dest
+    )
+  |};
+  [%expect
+    {|
+    $r0 <- load_const("USD/2")
+    set_current_asset($r0)
+    $r1 <- load_const(0)
+    $r2 <- load_const("src1")
+    $r3 <- pull_account_uncapped($r2)
+    $r1 <- add_int($r1, $r3)
+    $r4 <- load_const("src2")
+    $r5 <- pull_account_uncapped($r4)
+    $r1 <- add_int($r1, $r5)
+    $r6 <- load_const("dest")
+    send_to_account_uncapped($r6)
     |}]
 ;;
