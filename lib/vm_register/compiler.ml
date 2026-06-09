@@ -24,7 +24,7 @@ let get_fresh_dest ctx =
 
 let get_next_label_id ctx ~prefix =
   let value = !(ctx.next_label_id) in
-  incr ctx.next_reg;
+  incr ctx.next_label_id;
   match value with
   | 0 -> prefix
   | _ -> Format.sprintf "%s_%d" prefix value
@@ -337,19 +337,19 @@ let%expect_test "inorder" =
     set_current_asset($r3)
     $r4 <- get_amount($r0)
     $r5 <- load_const(0)
-    $r7 <- int_copy($r4)
-    $r8 <- load_const("s1")
-    $r9 <- pull_account($r8, $r7)
-    $r5 <- add_int($r5, $r9)
-    $r7 <- sub_int($r7, $r9)
-    jmp_if_zero($r7, #inorder_end)
-    $r10 <- load_const("s2")
-    $r11 <- pull_account($r10, $r7)
-    $r5 <- add_int($r5, $r11)
+    $r6 <- int_copy($r4)
+    $r7 <- load_const("s1")
+    $r8 <- pull_account($r7, $r6)
+    $r5 <- add_int($r5, $r8)
+    $r6 <- sub_int($r6, $r8)
+    jmp_if_zero($r6, #inorder_end)
+    $r9 <- load_const("s2")
+    $r10 <- pull_account($r9, $r6)
+    $r5 <- add_int($r5, $r10)
     #inorder_end
     check_enough_funds($r5, $r4)
-    $r12 <- load_const("dest")
-    send_to_account_uncapped($r12)
+    $r11 <- load_const("dest")
+    send_to_account_uncapped($r11)
     |}]
 ;;
 
@@ -425,24 +425,24 @@ let%expect_test "capped + inorder" =
     set_current_asset($r3)
     $r4 <- get_amount($r0)
     $r5 <- load_const(0)
-    $r7 <- int_copy($r4)
-    $r9 <- load_const("USD/2")
-    $r10 <- load_const(5)
-    $r8 <- mk_monetary($r9, $r10)
-    $r11 <- get_amount($r8)
-    $r12 <- min_int($r11, $r7)
-    $r13 <- load_const("s1")
-    $r14 <- pull_account($r13, $r12)
-    $r5 <- add_int($r5, $r14)
-    $r7 <- sub_int($r7, $r14)
-    jmp_if_zero($r7, #inorder_end)
-    $r15 <- load_const("s2")
-    $r16 <- pull_account($r15, $r7)
-    $r5 <- add_int($r5, $r16)
+    $r6 <- int_copy($r4)
+    $r8 <- load_const("USD/2")
+    $r9 <- load_const(5)
+    $r7 <- mk_monetary($r8, $r9)
+    $r10 <- get_amount($r7)
+    $r11 <- min_int($r10, $r6)
+    $r12 <- load_const("s1")
+    $r13 <- pull_account($r12, $r11)
+    $r5 <- add_int($r5, $r13)
+    $r6 <- sub_int($r6, $r13)
+    jmp_if_zero($r6, #inorder_end)
+    $r14 <- load_const("s2")
+    $r15 <- pull_account($r14, $r6)
+    $r5 <- add_int($r5, $r15)
     #inorder_end
     check_enough_funds($r5, $r4)
-    $r17 <- load_const("dest")
-    send_to_account_uncapped($r17)
+    $r16 <- load_const("dest")
+    send_to_account_uncapped($r16)
     |}]
 ;;
 
@@ -464,20 +464,20 @@ let%expect_test "capped + inorder (optimized)" =
     set_current_asset($r3)
     $r4 <- load_const(10)
     $r5 <- load_const(0)
-    $r7 <- load_const(10)
-    $r12 <- load_const(5)
-    $r13 <- load_const("s1")
-    $r14 <- pull_account($r13, $r12)
-    $r5 <- add_int($r5, $r14)
-    $r7 <- sub_int($r7, $r14)
-    jmp_if_zero($r7, #inorder_end)
-    $r15 <- load_const("s2")
-    $r16 <- pull_account($r15, $r7)
-    $r5 <- add_int($r5, $r16)
+    $r6 <- load_const(10)
+    $r11 <- load_const(5)
+    $r12 <- load_const("s1")
+    $r13 <- pull_account($r12, $r11)
+    $r5 <- add_int($r5, $r13)
+    $r6 <- sub_int($r6, $r13)
+    jmp_if_zero($r6, #inorder_end)
+    $r14 <- load_const("s2")
+    $r15 <- pull_account($r14, $r6)
+    $r5 <- add_int($r5, $r15)
     #inorder_end
     check_enough_funds($r5, $r4)
-    $r17 <- load_const("dest")
-    send_to_account_uncapped($r17)
+    $r16 <- load_const("dest")
+    send_to_account_uncapped($r16)
     |}]
 ;;
 
