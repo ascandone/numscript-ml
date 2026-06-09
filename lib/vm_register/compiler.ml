@@ -162,15 +162,15 @@ let rec compile_source ~pulled_amt_reg ~cap_reg ctx (source : Ast.source) =
   | Ast.SrcAllotment _, _ -> failwith "[TODO] impl allot"
 ;;
 
-let rec compile_dest ~pulled_amt_reg ctx =
+let rec compile_dest ~pulled_amt_reg ~current_cap ctx =
   let ( let* ) = Result.bind in
   function
   | Ast.DestAccount account_expr ->
     let account = compile_expr ctx account_expr in
-    (* TODO(perf) this could be avoided when the pulled_amt is the initial register *)
-    push_instruction
-      ctx
-      (Virtual_instruction.SendToAccount { account; cap = Some pulled_amt_reg });
+    let cap =
+      if Int.equal pulled_amt_reg current_cap then None else Some pulled_amt_reg
+    in
+    push_instruction ctx (Virtual_instruction.SendToAccount { account; cap });
     Ok ()
   | Ast.DestInorder (clauses, remaining) ->
     let* () =
@@ -191,14 +191,14 @@ let rec compile_dest ~pulled_amt_reg ctx =
                  ; dest
                  })
            in
-           compile_kept_or_dest ctx ~pulled_amt_reg dest)
+           compile_kept_or_dest ctx ~pulled_amt_reg ~current_cap dest)
         clauses
     in
-    compile_kept_or_dest ~pulled_amt_reg ctx remaining
+    compile_kept_or_dest ~pulled_amt_reg ~current_cap ctx remaining
   | Ast.DestAllotment _ -> failwith "[TODO] impl allotment dest"
 
-and compile_kept_or_dest ~pulled_amt_reg ctx = function
-  | Ast.Dest account_expr -> compile_dest ~pulled_amt_reg ctx account_expr
+and compile_kept_or_dest ~pulled_amt_reg ~current_cap ctx = function
+  | Ast.Dest account_expr -> compile_dest ~pulled_amt_reg ~current_cap ctx account_expr
   | Ast.Kept -> failwith "[TODO] compile kept"
 ;;
 
@@ -221,7 +221,7 @@ let compile_stmt ctx =
         Virtual_instruction.UnaryOp { op = `get_amount; arg = monetary_reg; dest })
     in
     let* () = compile_source ~pulled_amt_reg ~cap_reg:(Some cap_reg) ctx source in
-    let* () = compile_dest ~pulled_amt_reg ctx destination in
+    let* () = compile_dest ~pulled_amt_reg ~current_cap:pulled_amt_reg ctx destination in
     Ok ()
   | Ast.StmtSendAll { asset; source; destination } ->
     let pulled_amt_reg =
@@ -231,7 +231,7 @@ let compile_stmt ctx =
     let asset_reg = compile_expr ctx asset in
     push_instruction ctx (Virtual_instruction.SetCurrentAsset { asset = asset_reg });
     let* () = compile_source ~pulled_amt_reg ~cap_reg:None ctx source in
-    let* () = compile_dest ~pulled_amt_reg ctx destination in
+    let* () = compile_dest ~pulled_amt_reg ~current_cap:pulled_amt_reg ctx destination in
     Ok ()
   | Ast.Save _ -> failwith "[TODO] compile stmt"
   | Ast.FnStatement _ -> failwith "[TODO] compile stmt"
@@ -479,7 +479,7 @@ let%expect_test "inorder dest clauses" =
     $r10 <- get_amount($r7)
     $r11 <- min_int($r0, $r10)
     $r12 <- load_const("dest:capped")
-    send_to_account_uncapped($r12)
+    send_to_account_capped($r12, $r11)
     $r13 <- load_const("dest")
     send_to_account_uncapped($r13)
     |}]
