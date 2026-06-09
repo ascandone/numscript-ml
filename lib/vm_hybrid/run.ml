@@ -1,4 +1,3 @@
-include Run_intf
 open Common
 
 type stacks =
@@ -10,7 +9,7 @@ type stacks =
 
 type ctx =
   { current_asset : string
-  ; vars : string StringMap.t
+  ; vars : string Run_state.StringMap.t
   ; program : Program.t
   ; stacks : stacks
   ; pc : int ref
@@ -74,7 +73,7 @@ let eval_bytecode (ctx : ctx) =
   | Program.Expr_FetchVar { typ; name_idx } ->
     let name = Stack.pop ctx.stacks.string_like in
     let value =
-      match StringMap.find_opt name ctx.vars with
+      match Run_state.StringMap.find_opt name ctx.vars with
       | None -> raise (RunError (UnboundVar name))
       | Some value -> value
     in
@@ -275,9 +274,10 @@ let run_compiled ~vars ~balances (program : Program.t) =
     ; program
     ; stacks = empty_vm
     ; pc = ref 0
-    ; run_state = Run_state.create (PairsMap.to_seq balances |> Hashtbl.of_seq)
+    ; run_state = Run_state.create ()
     }
   in
+  Run_state.set_balances run_ctx.run_state balances;
   match program.statements |> Array.iter (eval_statement run_ctx) with
   | exception RunError e -> Error e
   | () -> Ok (run_ctx.run_state.postings |> Queue.to_seq |> List.of_seq)

@@ -1,4 +1,3 @@
-include Run_intf
 open Common
 
 exception RunError of Common.run_error
@@ -184,7 +183,8 @@ let parse_var ~typ ~raw_value =
 ;;
 
 let run_program ~vars ~balances (program : Syntax.Ast.program) =
-  let run_ctx : ctx = Run_state.create (PairsMap.to_seq balances |> Hashtbl.of_seq) in
+  let run_ctx : ctx = Run_state.create () in
+  Run_state.set_balances run_ctx balances;
   let eval_ctx : unit Eval_ast.ctx =
     { vars = Hashtbl.create 10
     ; balance_lookup =
@@ -197,7 +197,7 @@ let run_program ~vars ~balances (program : Syntax.Ast.program) =
        let value =
          match v.value with
          | None ->
-           (match StringMap.find_opt v.name vars with
+           (match Run_state.StringMap.find_opt v.name vars with
             | None -> failwith "Err: missing variable"
             | Some raw_value -> parse_var ~typ:v.typ ~raw_value)
          | Some e -> Eval_ast.eval_expr eval_ctx e

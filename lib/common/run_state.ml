@@ -1,11 +1,16 @@
 include Run_state_intf
 
-let create balances =
-  { balances
+let create () =
+  { balances = Hashtbl.create 0
   ; sources = Dynarray.create ()
   ; postings = Queue.create ()
   ; current_asset = ref ""
   }
+;;
+
+let set_balances st balances =
+  let balances = PairsMap.to_seq balances |> Hashtbl.of_seq in
+  st.balances <- balances
 ;;
 
 let get_account_balance state name =
