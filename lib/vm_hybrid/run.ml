@@ -179,29 +179,12 @@ let rec pull_source ?cap ctx =
       | Some cap -> cap
     in
     (* -- eval *)
-    let values_to_send_first_pass =
-      Array.map
-        (fun por_expr_idx ->
-           let por = eval_expr_by_idx ctx por_expr_idx ~stack:ctx.stacks.portion in
-           let num = Portion.num por in
-           let den = Portion.den por in
-           let floored_down = Int64.div (Int64.mul cap num) den in
-           floored_down)
-        portions_array
+    let portions_array =
+      Array.map (eval_expr_by_idx ctx ~stack:ctx.stacks.portion) portions_array
     in
-    let total_sent_first_pass = Array.fold_left Int64.add 0L values_to_send_first_pass in
-    let remainder_ref = ref (Int64.sub cap total_sent_first_pass) in
-    let pull_src needed_amt =
-      let needed_amt =
-        if !remainder_ref > 0L
-        then (
-          remainder_ref := Int64.sub !remainder_ref 1L;
-          Int64.add 1L needed_amt)
-        else needed_amt
-      in
-      pull_source_amt ctx ~needed_amt
-    in
-    Array.iter pull_src values_to_send_first_pass;
+    Array.iter
+      (fun needed_amt -> pull_source_amt ctx ~needed_amt)
+      (calc_allot ~portions_array ~cap);
     cap
 
 and pull_source_amt ctx ~needed_amt =
