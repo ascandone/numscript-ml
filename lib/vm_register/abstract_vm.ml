@@ -59,6 +59,9 @@ let run ~vars:_ ~balances vm =
     let instruction = vm.instructions.(!pc) in
     incr pc;
     match instruction with
+    | SetCurrentAsset { asset } ->
+      let asset = read_string vm.regs.(asset) in
+      vm.run_state.current_asset := asset
     | LoadConst { dest; value = `String str } -> vm.regs.(dest) <- Value_String str
     | Label _ -> ()
     | LoadConst { dest; value = `Int n } -> vm.regs.(dest) <- Value_Int n

@@ -29,6 +29,7 @@ let pp_const_value fmt = function
 ;;
 
 type t =
+  | SetCurrentAsset of { asset : reg }
   | PullAccount of
       { dest : reg
       ; account : reg
@@ -60,6 +61,7 @@ type t =
       }
 
 let pp fmt = function
+  | SetCurrentAsset { asset } -> Format.fprintf fmt "set_current_asset(%a)" pp_reg asset
   | LoadConst { dest; value } ->
     Format.fprintf fmt "%a <- load_const(%a)" pp_reg dest pp_const_value value
   | SendToAccount { account; cap = None } ->
