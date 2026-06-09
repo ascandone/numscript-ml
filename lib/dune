@@ -1,5 +1,5 @@
 (library
  (name numscript)
- (libraries yojson syntax tree_walker vm_hybrid portion)
+ (libraries yojson syntax tree_walker vm_hybrid vm_register portion)
  (preprocess
   (pps ppx_deriving_yojson)))
