@@ -162,13 +162,18 @@ let rec compile_source ~pulled_amt_reg ~cap_reg ctx (source : Ast.source) =
   | Ast.SrcAllotment _, _ -> failwith "[TODO] impl allot"
 ;;
 
-let compile_dest ~pulled_amt_reg ctx = function
+let rec compile_dest ~pulled_amt_reg ctx = function
   | Ast.DestAccount account_expr ->
     let account = compile_expr ctx account_expr in
     push_instruction ctx (Virtual_instruction.SendToAccount { account; cap = None });
     Ok ()
+  | Ast.DestInorder (clauses, remaining) ->
+    compile_kept_or_dest ~pulled_amt_reg ctx remaining
   | Ast.DestAllotment _ -> failwith "[TODO] impl allotment dest"
-  | Ast.DestInorder _ -> failwith "[TODO] impl inorder dest"
+
+and compile_kept_or_dest ~pulled_amt_reg ctx = function
+  | Ast.Dest account_expr -> compile_dest ~pulled_amt_reg ctx account_expr
+  | Ast.Kept -> failwith "[TODO] compile kept"
 ;;
 
 let compile_stmt ctx =
@@ -391,5 +396,31 @@ let%expect_test "capped + inorder" =
     #inorder_end
     $r17 <- load_const("dest")
     send_to_account_uncapped($r17)
+    |}]
+;;
+
+let%expect_test "inorder destination" =
+  test_compiled
+    {|
+    send [USD/2 10] (
+      source = @src
+      destination = {
+        remaining to @dest
+      }
+    )
+  |};
+  [%expect
+    {|
+    $r0 <- load_const(0)
+    $r2 <- load_const("USD/2")
+    $r3 <- load_const(10)
+    $r1 <- mk_monetary($r2, $r3)
+    $r4 <- get_asset($r1)
+    set_current_asset($r4)
+    $r5 <- get_amount($r1)
+    $r6 <- load_const("src")
+    $r0 <- pull_account($r6, $r5)
+    $r7 <- load_const("dest")
+    send_to_account_uncapped($r7)
     |}]
 ;;
