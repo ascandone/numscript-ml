@@ -162,12 +162,38 @@ let rec compile_source ~pulled_amt_reg ~cap_reg ctx (source : Ast.source) =
   | Ast.SrcAllotment _, _ -> failwith "[TODO] impl allot"
 ;;
 
-let rec compile_dest ~pulled_amt_reg ctx = function
+let rec compile_dest ~pulled_amt_reg ctx =
+  let ( let* ) = Result.bind in
+  function
   | Ast.DestAccount account_expr ->
     let account = compile_expr ctx account_expr in
-    push_instruction ctx (Virtual_instruction.SendToAccount { account; cap = None });
+    (* TODO(perf) this could be avoided when the pulled_amt is the initial register *)
+    push_instruction
+      ctx
+      (Virtual_instruction.SendToAccount { account; cap = Some pulled_amt_reg });
     Ok ()
   | Ast.DestInorder (clauses, remaining) ->
+    let* () =
+      iter_result
+        (fun ({ cap; dest } : Ast.dest_inorder_clause) ->
+           let cap_monetary_reg = compile_expr ctx cap in
+           let inner_pulled_amt_reg =
+             push_instruction_dest ctx (fun dest ->
+               Virtual_instruction.UnaryOp
+                 { op = `get_amount; arg = cap_monetary_reg; dest })
+           in
+           let pulled_amt_reg =
+             push_instruction_dest ctx (fun dest ->
+               Virtual_instruction.BinaryOp
+                 { op = `min_int
+                 ; left = pulled_amt_reg
+                 ; right = inner_pulled_amt_reg
+                 ; dest
+                 })
+           in
+           compile_kept_or_dest ctx ~pulled_amt_reg dest)
+        clauses
+    in
     compile_kept_or_dest ~pulled_amt_reg ctx remaining
   | Ast.DestAllotment _ -> failwith "[TODO] impl allotment dest"
 
@@ -399,7 +425,7 @@ let%expect_test "capped + inorder" =
     |}]
 ;;
 
-let%expect_test "inorder destination" =
+let%expect_test "inorder dest remaining" =
   test_compiled
     {|
     send [USD/2 10] (
@@ -422,5 +448,39 @@ let%expect_test "inorder destination" =
     $r0 <- pull_account($r6, $r5)
     $r7 <- load_const("dest")
     send_to_account_uncapped($r7)
+    |}]
+;;
+
+let%expect_test "inorder dest clauses" =
+  test_compiled
+    {|
+    send [USD/2 10] (
+      source = @src
+      destination = {
+        max [USD/2 5] to @dest:capped
+        remaining to @dest
+      }
+    )
+  |};
+  [%expect
+    {|
+    $r0 <- load_const(0)
+    $r2 <- load_const("USD/2")
+    $r3 <- load_const(10)
+    $r1 <- mk_monetary($r2, $r3)
+    $r4 <- get_asset($r1)
+    set_current_asset($r4)
+    $r5 <- get_amount($r1)
+    $r6 <- load_const("src")
+    $r0 <- pull_account($r6, $r5)
+    $r8 <- load_const("USD/2")
+    $r9 <- load_const(5)
+    $r7 <- mk_monetary($r8, $r9)
+    $r10 <- get_amount($r7)
+    $r11 <- min_int($r0, $r10)
+    $r12 <- load_const("dest:capped")
+    send_to_account_uncapped($r12)
+    $r13 <- load_const("dest")
+    send_to_account_uncapped($r13)
     |}]
 ;;
