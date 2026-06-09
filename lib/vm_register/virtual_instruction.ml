@@ -29,10 +29,6 @@ let pp_const_value fmt = function
 ;;
 
 type t =
-  | LoadConst of
-      { value : [ `String of string | `Int of int64 ]
-      ; dest : reg
-      }
   | PullAccount of
       { dest : reg
       ; account : reg
@@ -41,6 +37,10 @@ type t =
   | SendToAccount of
       { account : reg
       ; cap : reg option
+      }
+  | LoadConst of
+      { value : [ `String of string | `Int of int64 ]
+      ; dest : reg
       }
   | Label of string
   | JmpIfZero of
