@@ -220,6 +220,8 @@ let%expect_test "simple program" =
     $r4 <- get_amount($r1)
     $r5 <- load_const("src")
     $r0 <- pull_account($r5, $r4)
+    $r6 <- load_const("dest")
+    send_to_account_uncapped($r6)
     |}]
 ;;
 
@@ -251,6 +253,8 @@ let%expect_test "inorder" =
     $r9 <- pull_account($r10, $r6)
     $r0 <- add_int($r0, $r9)
     #inorder_end
+    $r11 <- load_const("dest")
+    send_to_account_uncapped($r11)
     |}]
 ;;
 
@@ -276,6 +280,8 @@ let%expect_test "top level max" =
     $r9 <- int_min($r8, $r4)
     $r10 <- load_const("s1")
     $r0 <- pull_account($r10, $r9)
+    $r11 <- load_const("dest")
+    send_to_account_uncapped($r11)
     |}]
 ;;
 
@@ -297,6 +303,8 @@ let%expect_test "top level max on unbounded" =
     $r5 <- get_amount($r2)
     $r6 <- load_const("s1")
     $r0 <- pull_account($r6, $r5)
+    $r7 <- load_const("dest")
+    send_to_account_uncapped($r7)
     |}]
 ;;
 
@@ -333,5 +341,7 @@ let%expect_test "capped + inorder" =
     $r14 <- pull_account($r15, $r6)
     $r0 <- add_int($r0, $r14)
     #inorder_end
+    $r16 <- load_const("dest")
+    send_to_account_uncapped($r16)
     |}]
 ;;
