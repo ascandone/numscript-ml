@@ -32,19 +32,19 @@ let min_opt n = function
 (** Unbounded / Bounded pull with cap. Doesn't fail if we don't reach the cap. *)
 let rec pull_source ctx ?cap = function
   | Ast_canonical.SrcAccount name ->
-    let acc_balance = Run_state.get_account_balance ctx name in
-    Run_state.send ctx name (min_opt (max 0L acc_balance) cap)
+    (match cap with
+     | None -> Run_state.pull_uncapped ~source:name ctx
+     | Some cap -> Run_state.pull ~cap ~source:name ctx)
   | Ast_canonical.SrcAccountOverdraft { account; max_overdraft } ->
-    let acc_balance = Run_state.get_account_balance ctx account in
-    let amt =
-      match max_overdraft, cap with
-      | None, None -> acc_balance
-      | None, Some cap -> cap
-      | Some (_, limit), None -> max 0L (Int64.add acc_balance (max 0L limit))
-      | Some (_, limit), Some cap ->
-        min cap (max 0L (Int64.add acc_balance (max 0L limit)))
-    in
-    Run_state.send ctx account amt
+    (match max_overdraft, cap with
+     | None, None -> failwith "error: invalid uncapped unbounded"
+     | Some max_overdraft, None -> Run_state.pull_uncapped ctx ~source:account
+     | _, Some cap ->
+       Run_state.pull
+         ~overdraft_bound:(Option.map (fun (_, i) -> i) max_overdraft)
+         ~cap
+         ~source:account
+         ctx)
   | Ast_canonical.SrcMax (max_cap, sub_src) ->
     pull_source ctx ~cap:(max 0L (min_opt max_cap cap)) sub_src
   | Ast_canonical.SrcInorder srcs -> pull_sources_capped_inorder ctx ?cap srcs
@@ -90,7 +90,7 @@ let pop_first_opt (da : 'a Dynarray.t) : 'a option =
 ;;
 
 let rec send_to_dest ctx ~amt_left = function
-  | Ast_canonical.DestAccount acc -> Run_state.send_to_acc ctx acc ~dest_cap:amt_left
+  | Ast_canonical.DestAccount acc -> Run_state.send ctx ~dest:acc ~cap:amt_left
   | Ast_canonical.DestInorder (dests, remaining) ->
     let amt_used =
       List.fold_left
