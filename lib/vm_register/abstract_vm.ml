@@ -52,13 +52,19 @@ let create ~instructions =
   }
 ;;
 
-let run ~vars:_ ~balances vm =
+exception RunError of run_error
+
+let run_raise ~vars:_ ~balances vm =
   Run_state.set_balances vm.run_state balances;
   let pc = ref 0 in
   while !pc < Array.length vm.instructions do
     let instruction = vm.instructions.(!pc) in
     incr pc;
     match instruction with
+    | CheckEnoughFunds { got; needed } ->
+      let got = read_int vm.regs.(got) in
+      let needed = read_int vm.regs.(needed) in
+      if not (Int64.equal got needed) then raise (RunError MissingFunds)
     | SetCurrentAsset { asset } ->
       let asset = read_string vm.regs.(asset) in
       vm.run_state.current_asset := asset
@@ -111,4 +117,9 @@ let run ~vars:_ ~balances vm =
       if Int64.equal Int64.zero value then pc := Hashtbl.find vm.labels_indexes label
   done;
   vm.run_state.postings |> Queue.to_seq |> List.of_seq
+;;
+
+let run ~vars ~balances vm =
+  try Ok (run_raise ~vars ~balances vm) with
+  | RunError e -> Error e
 ;;

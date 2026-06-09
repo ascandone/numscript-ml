@@ -30,6 +30,10 @@ let pp_const_value fmt = function
 
 type t =
   | SetCurrentAsset of { asset : reg }
+  | CheckEnoughFunds of
+      { got : reg
+      ; needed : reg
+      }
   | PullAccount of
       { dest : reg
       ; account : reg
@@ -61,6 +65,8 @@ type t =
       }
 
 let pp fmt = function
+  | CheckEnoughFunds { got; needed } ->
+    Format.fprintf fmt "check_enough_funds(%a, %a)" pp_reg got pp_reg needed
   | SetCurrentAsset { asset } -> Format.fprintf fmt "set_current_asset(%a)" pp_reg asset
   | LoadConst { dest; value } ->
     Format.fprintf fmt "%a <- load_const(%a)" pp_reg dest pp_const_value value
