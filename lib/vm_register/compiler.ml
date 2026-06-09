@@ -79,7 +79,8 @@ and compile_expr ctx expr =
   dest
 ;;
 
-let rec compile_source ~pulled_amt_reg ~cap_reg ctx (source : Ast.source) =
+(** returns the register holding the total amount pulled  *)
+let rec compile_source ~cap_reg ctx (source : Ast.source) =
   let ( let* ) = Result.bind in
   match source, cap_reg with
   | Ast.SrcAccountOverdraft { max_overdraft = None; _ }, None ->
@@ -87,12 +88,15 @@ let rec compile_source ~pulled_amt_reg ~cap_reg ctx (source : Ast.source) =
   | Ast.SrcAccountOverdraft _, _ -> failwith "[TODO] overdraft"
   | Ast.SrcAccount name, cap ->
     let account = compile_expr ctx name in
-    push_instruction
-      ctx
-      (Virtual_instruction.PullAccount { cap; account; dest = pulled_amt_reg });
-    Ok ()
+    let dest = get_fresh_dest ctx in
+    push_instruction ctx (Virtual_instruction.PullAccount { cap; account; dest });
+    Ok dest
   | Ast.SrcInorder _, None -> Error UncappedInorder
   | Ast.SrcInorder srcs, Some outer_cap_reg ->
+    let inorder_total_reg =
+      push_instruction_dest ctx (fun dest ->
+        Virtual_instruction.LoadConst { value = `Int 0L; dest })
+    in
     (* TODO collapse together nested inorders *)
     let end_label = get_next_label_id ctx ~prefix:"inorder_end" in
     let inorder_cap =
@@ -102,20 +106,14 @@ let rec compile_source ~pulled_amt_reg ~cap_reg ctx (source : Ast.source) =
     let rec loop = function
       | [] -> Ok ()
       | src :: srcs ->
-        let inner_pulled_amt_reg = get_fresh_dest ctx in
-        let* () =
-          compile_source
-            ~pulled_amt_reg:inner_pulled_amt_reg
-            ~cap_reg:(Some inorder_cap)
-            ctx
-            src
-        in
+        let* inner_pulled_amt_reg = compile_source ~cap_reg:(Some inorder_cap) ctx src in
+        (* inorder_total_reg += inner_pulled_amt_reg *)
         push_instruction
           ctx
           (Virtual_instruction.BinaryOp
              { op = `add_int
-             ; dest = pulled_amt_reg
-             ; left = pulled_amt_reg
+             ; dest = inorder_total_reg
+             ; left = inorder_total_reg
              ; right = inner_pulled_amt_reg
              });
         (match srcs with
@@ -123,7 +121,7 @@ let rec compile_source ~pulled_amt_reg ~cap_reg ctx (source : Ast.source) =
            (* Last expression: no jumps needed *)
            Ok ()
          | _ ->
-           (* inorder_cap -= pulled_amt *)
+           (* inorder_cap -= inner_pulled_amt_reg *)
            push_instruction
              ctx
              (Virtual_instruction.BinaryOp
@@ -139,7 +137,7 @@ let rec compile_source ~pulled_amt_reg ~cap_reg ctx (source : Ast.source) =
     in
     let* () = loop srcs in
     push_instruction ctx (Virtual_instruction.Label end_label);
-    Ok ()
+    Ok inorder_total_reg
   | Ast.SrcMax (clause_cap, sub_src), _ ->
     let clause_cap_monetary_reg = compile_expr ctx clause_cap in
     let clause_cap_int_reg =
@@ -155,16 +153,14 @@ let rec compile_source ~pulled_amt_reg ~cap_reg ctx (source : Ast.source) =
           Virtual_instruction.BinaryOp
             { op = `min_int; left = clause_cap_int_reg; right = outer_cap_reg; dest })
     in
-    compile_source ~pulled_amt_reg ~cap_reg:(Some cap_reg) ctx sub_src
+    compile_source ~cap_reg:(Some cap_reg) ctx sub_src
   | Ast.SrcAllotment _, _ -> failwith "[TODO] impl allot"
 
-and compile_source_with_required_amt ~pulled_amt_reg ~cap_reg ctx src =
+and compile_source_with_required_amt ~cap_reg ctx src =
   let ( let* ) = Result.bind in
-  let* () = compile_source ~pulled_amt_reg ~cap_reg:(Some cap_reg) ctx src in
-  push_instruction
-    ctx
-    (Virtual_instruction.CheckEnoughFunds { got = pulled_amt_reg; needed = cap_reg });
-  Ok ()
+  let* got = compile_source ~cap_reg:(Some cap_reg) ctx src in
+  push_instruction ctx (Virtual_instruction.CheckEnoughFunds { got; needed = cap_reg });
+  Ok got
 ;;
 
 let rec compile_dest ~pulled_amt_reg ~current_cap ctx =
@@ -211,10 +207,6 @@ let compile_stmt ctx =
   let ( let* ) = Result.bind in
   function
   | Ast.StmtSend { monetary; source; destination } ->
-    let pulled_amt_reg =
-      push_instruction_dest ctx (fun dest ->
-        Virtual_instruction.LoadConst { value = `Int 0L; dest })
-    in
     let monetary_reg = compile_expr ctx monetary in
     let asset_reg =
       push_instruction_dest ctx (fun dest ->
@@ -225,17 +217,13 @@ let compile_stmt ctx =
       push_instruction_dest ctx (fun dest ->
         Virtual_instruction.UnaryOp { op = `get_amount; arg = monetary_reg; dest })
     in
-    let* () = compile_source_with_required_amt ~pulled_amt_reg ~cap_reg ctx source in
+    let* pulled_amt_reg = compile_source_with_required_amt ~cap_reg ctx source in
     let* () = compile_dest ~pulled_amt_reg ~current_cap:pulled_amt_reg ctx destination in
     Ok ()
   | Ast.StmtSendAll { asset; source; destination } ->
-    let pulled_amt_reg =
-      push_instruction_dest ctx (fun dest ->
-        Virtual_instruction.LoadConst { value = `Int 0L; dest })
-    in
     let asset_reg = compile_expr ctx asset in
     push_instruction ctx (Virtual_instruction.SetCurrentAsset { asset = asset_reg });
-    let* () = compile_source ~pulled_amt_reg ~cap_reg:None ctx source in
+    let* pulled_amt_reg = compile_source ~cap_reg:None ctx source in
     let* () = compile_dest ~pulled_amt_reg ~current_cap:pulled_amt_reg ctx destination in
     Ok ()
   | Ast.Save _ -> failwith "[TODO] compile stmt"
@@ -293,16 +281,15 @@ let%expect_test "simple program" =
   |};
   [%expect
     {|
-    $r0 <- load_const(0)
-    $r2 <- load_const("USD/2")
-    $r3 <- load_const(10)
-    $r1 <- mk_monetary($r2, $r3)
-    $r4 <- get_asset($r1)
-    set_current_asset($r4)
-    $r5 <- get_amount($r1)
-    $r6 <- load_const("src")
-    $r0 <- pull_account($r6, $r5)
-    check_enough_funds($r0, $r5)
+    $r1 <- load_const("USD/2")
+    $r2 <- load_const(10)
+    $r0 <- mk_monetary($r1, $r2)
+    $r3 <- get_asset($r0)
+    set_current_asset($r3)
+    $r4 <- get_amount($r0)
+    $r5 <- load_const("src")
+    $r6 <- pull_account($r5, $r4)
+    check_enough_funds($r6, $r4)
     $r7 <- load_const("dest")
     send_to_account_uncapped($r7)
     |}]
@@ -319,13 +306,12 @@ let%expect_test "simple program (optimized)" =
   |};
   [%expect
     {|
-    $r0 <- load_const(0)
-    $r4 <- load_const("USD/2")
-    set_current_asset($r4)
-    $r5 <- load_const(10)
-    $r6 <- load_const("src")
-    $r0 <- pull_account($r6, $r5)
-    check_enough_funds($r0, $r5)
+    $r3 <- load_const("USD/2")
+    set_current_asset($r3)
+    $r4 <- load_const(10)
+    $r5 <- load_const("src")
+    $r6 <- pull_account($r5, $r4)
+    check_enough_funds($r6, $r4)
     $r7 <- load_const("dest")
     send_to_account_uncapped($r7)
     |}]
@@ -344,24 +330,24 @@ let%expect_test "inorder" =
   |};
   [%expect
     {|
-    $r0 <- load_const(0)
-    $r2 <- load_const("USD/2")
-    $r3 <- load_const(10)
-    $r1 <- mk_monetary($r2, $r3)
-    $r4 <- get_asset($r1)
-    set_current_asset($r4)
-    $r5 <- get_amount($r1)
-    $r7 <- int_copy($r5)
-    $r9 <- load_const("s1")
-    $r8 <- pull_account($r9, $r7)
-    $r0 <- add_int($r0, $r8)
-    $r7 <- sub_int($r7, $r8)
+    $r1 <- load_const("USD/2")
+    $r2 <- load_const(10)
+    $r0 <- mk_monetary($r1, $r2)
+    $r3 <- get_asset($r0)
+    set_current_asset($r3)
+    $r4 <- get_amount($r0)
+    $r5 <- load_const(0)
+    $r7 <- int_copy($r4)
+    $r8 <- load_const("s1")
+    $r9 <- pull_account($r8, $r7)
+    $r5 <- add_int($r5, $r9)
+    $r7 <- sub_int($r7, $r9)
     jmp_if_zero($r7, #inorder_end)
-    $r11 <- load_const("s2")
-    $r10 <- pull_account($r11, $r7)
-    $r0 <- add_int($r0, $r10)
+    $r10 <- load_const("s2")
+    $r11 <- pull_account($r10, $r7)
+    $r5 <- add_int($r5, $r11)
     #inorder_end
-    check_enough_funds($r0, $r5)
+    check_enough_funds($r5, $r4)
     $r12 <- load_const("dest")
     send_to_account_uncapped($r12)
     |}]
@@ -377,21 +363,20 @@ let%expect_test "top level max" =
   |};
   [%expect
     {|
-    $r0 <- load_const(0)
-    $r2 <- load_const("USD/2")
-    $r3 <- load_const(10)
-    $r1 <- mk_monetary($r2, $r3)
-    $r4 <- get_asset($r1)
-    set_current_asset($r4)
-    $r5 <- get_amount($r1)
-    $r7 <- load_const("USD/2")
-    $r8 <- load_const(5)
-    $r6 <- mk_monetary($r7, $r8)
-    $r9 <- get_amount($r6)
-    $r10 <- min_int($r9, $r5)
-    $r11 <- load_const("s1")
-    $r0 <- pull_account($r11, $r10)
-    check_enough_funds($r0, $r5)
+    $r1 <- load_const("USD/2")
+    $r2 <- load_const(10)
+    $r0 <- mk_monetary($r1, $r2)
+    $r3 <- get_asset($r0)
+    set_current_asset($r3)
+    $r4 <- get_amount($r0)
+    $r6 <- load_const("USD/2")
+    $r7 <- load_const(5)
+    $r5 <- mk_monetary($r6, $r7)
+    $r8 <- get_amount($r5)
+    $r9 <- min_int($r8, $r4)
+    $r10 <- load_const("s1")
+    $r11 <- pull_account($r10, $r9)
+    check_enough_funds($r11, $r4)
     $r12 <- load_const("dest")
     send_to_account_uncapped($r12)
     |}]
@@ -407,15 +392,14 @@ let%expect_test "top level max on unbounded" =
   |};
   [%expect
     {|
-    $r0 <- load_const(0)
-    $r1 <- load_const("USD/2")
-    set_current_asset($r1)
-    $r3 <- load_const("USD/2")
-    $r4 <- load_const(5)
-    $r2 <- mk_monetary($r3, $r4)
-    $r5 <- get_amount($r2)
-    $r6 <- load_const("s1")
-    $r0 <- pull_account($r6, $r5)
+    $r0 <- load_const("USD/2")
+    set_current_asset($r0)
+    $r2 <- load_const("USD/2")
+    $r3 <- load_const(5)
+    $r1 <- mk_monetary($r2, $r3)
+    $r4 <- get_amount($r1)
+    $r5 <- load_const("s1")
+    $r6 <- pull_account($r5, $r4)
     $r7 <- load_const("dest")
     send_to_account_uncapped($r7)
     |}]
@@ -434,29 +418,29 @@ let%expect_test "capped + inorder" =
   |};
   [%expect
     {|
-    $r0 <- load_const(0)
-    $r2 <- load_const("USD/2")
-    $r3 <- load_const(10)
-    $r1 <- mk_monetary($r2, $r3)
-    $r4 <- get_asset($r1)
-    set_current_asset($r4)
-    $r5 <- get_amount($r1)
-    $r7 <- int_copy($r5)
-    $r10 <- load_const("USD/2")
-    $r11 <- load_const(5)
-    $r9 <- mk_monetary($r10, $r11)
-    $r12 <- get_amount($r9)
-    $r13 <- min_int($r12, $r7)
-    $r14 <- load_const("s1")
-    $r8 <- pull_account($r14, $r13)
-    $r0 <- add_int($r0, $r8)
-    $r7 <- sub_int($r7, $r8)
+    $r1 <- load_const("USD/2")
+    $r2 <- load_const(10)
+    $r0 <- mk_monetary($r1, $r2)
+    $r3 <- get_asset($r0)
+    set_current_asset($r3)
+    $r4 <- get_amount($r0)
+    $r5 <- load_const(0)
+    $r7 <- int_copy($r4)
+    $r9 <- load_const("USD/2")
+    $r10 <- load_const(5)
+    $r8 <- mk_monetary($r9, $r10)
+    $r11 <- get_amount($r8)
+    $r12 <- min_int($r11, $r7)
+    $r13 <- load_const("s1")
+    $r14 <- pull_account($r13, $r12)
+    $r5 <- add_int($r5, $r14)
+    $r7 <- sub_int($r7, $r14)
     jmp_if_zero($r7, #inorder_end)
-    $r16 <- load_const("s2")
-    $r15 <- pull_account($r16, $r7)
-    $r0 <- add_int($r0, $r15)
+    $r15 <- load_const("s2")
+    $r16 <- pull_account($r15, $r7)
+    $r5 <- add_int($r5, $r16)
     #inorder_end
-    check_enough_funds($r0, $r5)
+    check_enough_funds($r5, $r4)
     $r17 <- load_const("dest")
     send_to_account_uncapped($r17)
     |}]
@@ -476,22 +460,22 @@ let%expect_test "capped + inorder (optimized)" =
   |};
   [%expect
     {|
-    $r0 <- load_const(0)
-    $r4 <- load_const("USD/2")
-    set_current_asset($r4)
-    $r5 <- load_const(10)
+    $r3 <- load_const("USD/2")
+    set_current_asset($r3)
+    $r4 <- load_const(10)
+    $r5 <- load_const(0)
     $r7 <- load_const(10)
-    $r13 <- load_const(5)
-    $r14 <- load_const("s1")
-    $r8 <- pull_account($r14, $r13)
-    $r0 <- add_int($r0, $r8)
-    $r7 <- sub_int($r7, $r8)
+    $r12 <- load_const(5)
+    $r13 <- load_const("s1")
+    $r14 <- pull_account($r13, $r12)
+    $r5 <- add_int($r5, $r14)
+    $r7 <- sub_int($r7, $r14)
     jmp_if_zero($r7, #inorder_end)
-    $r16 <- load_const("s2")
-    $r15 <- pull_account($r16, $r7)
-    $r0 <- add_int($r0, $r15)
+    $r15 <- load_const("s2")
+    $r16 <- pull_account($r15, $r7)
+    $r5 <- add_int($r5, $r16)
     #inorder_end
-    check_enough_funds($r0, $r5)
+    check_enough_funds($r5, $r4)
     $r17 <- load_const("dest")
     send_to_account_uncapped($r17)
     |}]
@@ -509,16 +493,15 @@ let%expect_test "inorder dest remaining" =
   |};
   [%expect
     {|
-    $r0 <- load_const(0)
-    $r2 <- load_const("USD/2")
-    $r3 <- load_const(10)
-    $r1 <- mk_monetary($r2, $r3)
-    $r4 <- get_asset($r1)
-    set_current_asset($r4)
-    $r5 <- get_amount($r1)
-    $r6 <- load_const("src")
-    $r0 <- pull_account($r6, $r5)
-    check_enough_funds($r0, $r5)
+    $r1 <- load_const("USD/2")
+    $r2 <- load_const(10)
+    $r0 <- mk_monetary($r1, $r2)
+    $r3 <- get_asset($r0)
+    set_current_asset($r3)
+    $r4 <- get_amount($r0)
+    $r5 <- load_const("src")
+    $r6 <- pull_account($r5, $r4)
+    check_enough_funds($r6, $r4)
     $r7 <- load_const("dest")
     send_to_account_uncapped($r7)
     |}]
@@ -537,21 +520,20 @@ let%expect_test "inorder dest clauses" =
   |};
   [%expect
     {|
-    $r0 <- load_const(0)
-    $r2 <- load_const("USD/2")
-    $r3 <- load_const(10)
-    $r1 <- mk_monetary($r2, $r3)
-    $r4 <- get_asset($r1)
-    set_current_asset($r4)
-    $r5 <- get_amount($r1)
-    $r6 <- load_const("src")
-    $r0 <- pull_account($r6, $r5)
-    check_enough_funds($r0, $r5)
+    $r1 <- load_const("USD/2")
+    $r2 <- load_const(10)
+    $r0 <- mk_monetary($r1, $r2)
+    $r3 <- get_asset($r0)
+    set_current_asset($r3)
+    $r4 <- get_amount($r0)
+    $r5 <- load_const("src")
+    $r6 <- pull_account($r5, $r4)
+    check_enough_funds($r6, $r4)
     $r8 <- load_const("USD/2")
     $r9 <- load_const(5)
     $r7 <- mk_monetary($r8, $r9)
     $r10 <- get_amount($r7)
-    $r11 <- min_int($r0, $r10)
+    $r11 <- min_int($r6, $r10)
     $r12 <- load_const("dest:capped")
     send_to_account_capped($r12, $r11)
     $r13 <- load_const("dest")
@@ -569,11 +551,10 @@ let%expect_test "uncapped src" =
   |};
   [%expect
     {|
-    $r0 <- load_const(0)
-    $r1 <- load_const("USD/2")
-    set_current_asset($r1)
-    $r2 <- load_const("src")
-    $r0 <- pull_account_uncapped($r2)
+    $r0 <- load_const("USD/2")
+    set_current_asset($r0)
+    $r1 <- load_const("src")
+    $r2 <- pull_account_uncapped($r1)
     $r3 <- load_const("dest")
     send_to_account_uncapped($r3)
     |}]
