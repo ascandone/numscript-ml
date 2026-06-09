@@ -85,10 +85,7 @@ let rec compile_source ~pulled_amt_reg ~cap_reg ctx (source : Ast.source) =
   | Ast.SrcAccountOverdraft { max_overdraft = None; _ }, None ->
     Error Common.UncappedOverdraft
   | Ast.SrcAccountOverdraft _, _ -> failwith "[TODO] overdraft"
-  | Ast.SrcAccount name, None ->
-    let _account_reg = compile_expr ctx name in
-    failwith "[TODO] uncapped pull"
-  | Ast.SrcAccount name, Some cap ->
+  | Ast.SrcAccount name, cap ->
     let account = compile_expr ctx name in
     push_instruction
       ctx
@@ -535,5 +532,25 @@ let%expect_test "inorder dest clauses" =
     send_to_account_capped($r12, $r11)
     $r13 <- load_const("dest")
     send_to_account_uncapped($r13)
+    |}]
+;;
+
+let%expect_test "uncapped src" =
+  test_compiled
+    {|
+    send [USD/2 *] (
+      source = @src
+      destination = @dest
+    )
+  |};
+  [%expect
+    {|
+    $r0 <- load_const(0)
+    $r1 <- load_const("USD/2")
+    set_current_asset($r1)
+    $r2 <- load_const("src")
+    $r0 <- pull_account_uncapped($r2)
+    $r3 <- load_const("dest")
+    send_to_account_uncapped($r3)
     |}]
 ;;

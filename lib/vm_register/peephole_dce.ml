@@ -6,8 +6,8 @@ let get_used_args =
   | UnaryOp { arg; _ } -> [ arg ]
   | JmpIfZero { value } -> [ value ]
   | CheckEnoughFunds { got; needed } -> [ got; needed ]
-  | SendToAccount { account; cap } -> account :: Option.to_list cap
-  | PullAccount { account; cap } -> [ account; cap ]
+  | SendToAccount { account; cap } | PullAccount { account; cap } ->
+    account :: Option.to_list cap
   | SetCurrentAsset { asset } -> [ asset ]
 ;;
 

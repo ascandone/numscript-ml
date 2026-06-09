@@ -37,7 +37,7 @@ let push_instruction state =
     check_reg needed Reg_type.int
   | Virtual_instruction.PullAccount { dest; account; cap } ->
     check_reg account Reg_type.string;
-    check_reg cap Reg_type.int;
+    Option.iter (fun cap -> check_reg cap Reg_type.int) cap;
     declare_reg dest Reg_type.int
   | Virtual_instruction.SendToAccount { account; cap } ->
     check_reg account Reg_type.string;

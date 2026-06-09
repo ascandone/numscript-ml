@@ -37,7 +37,7 @@ type t =
   | PullAccount of
       { dest : reg
       ; account : reg
-      ; cap : reg
+      ; cap : reg option
       }
   | SendToAccount of
       { account : reg
@@ -74,8 +74,10 @@ let pp fmt = function
     Format.fprintf fmt "send_to_account_uncapped(%a)" pp_reg account
   | SendToAccount { account; cap = Some cap } ->
     Format.fprintf fmt "send_to_account_capped(%a, %a)" pp_reg account pp_reg cap
-  | PullAccount { dest; cap; account } ->
+  | PullAccount { dest; account; cap = Some cap } ->
     Format.fprintf fmt "%a <- pull_account(%a, %a)" pp_reg dest pp_reg account pp_reg cap
+  | PullAccount { dest; account; cap = None } ->
+    Format.fprintf fmt "%a <- pull_account_uncapped(%a)" pp_reg dest pp_reg account
   | Label label -> Format.fprintf fmt "#%s" label
   | JmpIfZero { value; label } ->
     Format.fprintf fmt "jmp_if_zero(%a, #%s)" pp_reg value label
