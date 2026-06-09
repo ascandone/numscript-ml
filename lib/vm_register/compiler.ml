@@ -160,6 +160,14 @@ let rec compile_source ~pulled_amt_reg ~cap_reg ctx (source : Ast.source) =
     in
     compile_source ~pulled_amt_reg ~cap_reg:(Some cap_reg) ctx sub_src
   | Ast.SrcAllotment _, _ -> failwith "[TODO] impl allot"
+
+and compile_source_with_required_amt ~pulled_amt_reg ~cap_reg ctx src =
+  let ( let* ) = Result.bind in
+  let* () = compile_source ~pulled_amt_reg ~cap_reg:(Some cap_reg) ctx src in
+  push_instruction
+    ctx
+    (Virtual_instruction.CheckEnoughFunds { got = pulled_amt_reg; needed = cap_reg });
+  Ok ()
 ;;
 
 let rec compile_dest ~pulled_amt_reg ~current_cap ctx =
@@ -220,7 +228,7 @@ let compile_stmt ctx =
       push_instruction_dest ctx (fun dest ->
         Virtual_instruction.UnaryOp { op = `get_amount; arg = monetary_reg; dest })
     in
-    let* () = compile_source ~pulled_amt_reg ~cap_reg:(Some cap_reg) ctx source in
+    let* () = compile_source_with_required_amt ~pulled_amt_reg ~cap_reg ctx source in
     let* () = compile_dest ~pulled_amt_reg ~current_cap:pulled_amt_reg ctx destination in
     Ok ()
   | Ast.StmtSendAll { asset; source; destination } ->
@@ -296,6 +304,7 @@ let%expect_test "simple program" =
     $r5 <- get_amount($r1)
     $r6 <- load_const("src")
     $r0 <- pull_account($r6, $r5)
+    check_enough_funds($r0, $r5)
     $r7 <- load_const("dest")
     send_to_account_uncapped($r7)
     |}]
@@ -331,6 +340,7 @@ let%expect_test "inorder" =
     $r10 <- pull_account($r11, $r7)
     $r0 <- add_int($r0, $r10)
     #inorder_end
+    check_enough_funds($r0, $r5)
     $r12 <- load_const("dest")
     send_to_account_uncapped($r12)
     |}]
@@ -360,6 +370,7 @@ let%expect_test "top level max" =
     $r10 <- min_int($r9, $r5)
     $r11 <- load_const("s1")
     $r0 <- pull_account($r11, $r10)
+    check_enough_funds($r0, $r5)
     $r12 <- load_const("dest")
     send_to_account_uncapped($r12)
     |}]
@@ -424,6 +435,7 @@ let%expect_test "capped + inorder" =
     $r15 <- pull_account($r16, $r7)
     $r0 <- add_int($r0, $r15)
     #inorder_end
+    check_enough_funds($r0, $r5)
     $r17 <- load_const("dest")
     send_to_account_uncapped($r17)
     |}]
@@ -446,6 +458,7 @@ let%expect_test "capped + inorder (optimized)" =
     $r0 <- load_const(0)
     $r4 <- load_const("USD/2")
     set_current_asset($r4)
+    $r5 <- load_const(10)
     $r7 <- load_const(10)
     $r13 <- load_const(5)
     $r14 <- load_const("s1")
@@ -457,6 +470,7 @@ let%expect_test "capped + inorder (optimized)" =
     $r15 <- pull_account($r16, $r7)
     $r0 <- add_int($r0, $r15)
     #inorder_end
+    check_enough_funds($r0, $r5)
     $r17 <- load_const("dest")
     send_to_account_uncapped($r17)
     |}]
@@ -483,6 +497,7 @@ let%expect_test "inorder dest remaining" =
     $r5 <- get_amount($r1)
     $r6 <- load_const("src")
     $r0 <- pull_account($r6, $r5)
+    check_enough_funds($r0, $r5)
     $r7 <- load_const("dest")
     send_to_account_uncapped($r7)
     |}]
@@ -510,6 +525,7 @@ let%expect_test "inorder dest clauses" =
     $r5 <- get_amount($r1)
     $r6 <- load_const("src")
     $r0 <- pull_account($r6, $r5)
+    check_enough_funds($r0, $r5)
     $r8 <- load_const("USD/2")
     $r9 <- load_const(5)
     $r7 <- mk_monetary($r8, $r9)
