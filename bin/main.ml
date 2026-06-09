@@ -7,7 +7,7 @@ let trim_suffix ~suffix s =
   else s
 ;;
 
-open Vm_hybrid
+open Vm_register
 
 let sf_pairs_to_run m =
   Specs_format.PairsMap.bindings m
