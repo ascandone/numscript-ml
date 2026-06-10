@@ -10,6 +10,10 @@ type expr_typ =
 type run_error =
   | MissingFunds
   | UnboundVar of string
+  | BadVar of
+      { typ : [ `Monetary | `Portion ]
+      ; raw_value : string
+      }
   | InvalidVarSyntax of
       { typ : expr_typ
       ; value : string

@@ -126,17 +126,14 @@ let run_stmt (ctx : Run_state.run_state) = function
   | Ast_canonical.Save _ -> failwith "TODO save"
 ;;
 
-let parse_var ~typ ~raw_value =
-  match typ with
-  | ExprTyp_Account -> Value.Asset raw_value
-  | ExprTyp_Asset -> Value.Asset raw_value
-  | ExprTyp_String -> Value.String raw_value
-  | ExprTyp_Number -> Value.Int (Int64.of_string raw_value)
-  | ExprTyp_Monetary ->
-    (match String.split_on_char ' ' raw_value with
-     | [ asset; amt ] -> Value.Monetary (asset, Int64.of_string amt)
-     | _ -> failwith "Error: invalid monetary lit")
-  | ExprTyp_Portion -> failwith "TODO parse portion"
+let alloc_var ~typ ~raw_value =
+  match parse_var ~typ ~raw_value with
+  | Ok (`Account s) -> Value.Account s
+  | Ok (`Asset s) -> Value.Asset s
+  | Ok (`String s) -> Value.String s
+  | Ok (`Int n) -> Value.Int n
+  | Ok (`Monetary (asset, amt)) -> Value.Monetary (asset, amt)
+  | Error `BadMonetary -> failwith "Err: bad monetary"
 ;;
 
 let run_program ~vars ~balances (program : Syntax.Ast.program) =
@@ -157,7 +154,7 @@ let run_program ~vars ~balances (program : Syntax.Ast.program) =
          | None ->
            (match Run_state.StringMap.find_opt v.name vars with
             | None -> failwith "Err: missing variable"
-            | Some raw_value -> parse_var ~typ ~raw_value)
+            | Some raw_value -> alloc_var ~typ ~raw_value)
          | Some e -> Eval_ast.eval_expr eval_ctx e
        in
        Hashtbl.add eval_ctx.vars v.name value)

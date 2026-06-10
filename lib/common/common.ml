@@ -12,6 +12,19 @@ let parse_typ typ_name =
   | _ -> None
 ;;
 
+let parse_var ~typ ~raw_value =
+  match typ with
+  | ExprTyp_Account -> Ok (`Account raw_value)
+  | ExprTyp_Asset -> Ok (`Asset raw_value)
+  | ExprTyp_String -> Ok (`String raw_value)
+  | ExprTyp_Number -> Ok (`Int (Int64.of_string raw_value))
+  | ExprTyp_Monetary ->
+    (match String.split_on_char ' ' raw_value with
+     | [ asset; amt ] -> Ok (`Monetary (asset, Int64.of_string amt))
+     | _ -> Error `BadMonetary)
+  | ExprTyp_Portion -> failwith "TODO parse portion"
+;;
+
 let calc_allot ~portions_array ~cap =
   let values_to_send_first_pass =
     Array.map

@@ -68,16 +68,12 @@ exception RunError of run_error
 
 let world_account = "world"
 
-let parse_var ~typ ~raw_string =
-  match typ with
-  | Common.ExprTyp_Account | Common.ExprTyp_Asset | Common.ExprTyp_String ->
-    Value_String raw_string
-  | Common.ExprTyp_Number -> Value_Int (Int64.of_string raw_string)
-  | Common.ExprTyp_Monetary ->
-    (match String.split_on_char ' ' raw_string with
-     | [ asset; amt ] -> Value_Monetary (asset, Int64.of_string amt)
-     | _ -> failwith "Error: invalid monetary lit")
-  | Common.ExprTyp_Portion -> failwith "TODO parse portion"
+let alloc_var ~typ ~raw_value =
+  match parse_var ~typ ~raw_value with
+  | Ok (`String s) | Ok (`Asset s) | Ok (`Account s) -> Value_String s
+  | Ok (`Int n) -> Value_Int n
+  | Ok (`Monetary (asset, amt)) -> Value_Monetary (asset, amt)
+  | Error `BadMonetary -> raise (RunError (BadVar { typ = `Monetary; raw_value }))
 ;;
 
 let run_raise ~vars ~balances vm =
@@ -88,12 +84,12 @@ let run_raise ~vars ~balances vm =
     incr pc;
     match instruction with
     | FetchVariable { dest; name; typ } ->
-      let raw_string =
+      let raw_value =
         match Run_state.StringMap.find_opt name vars with
         | None -> raise (RunError (UnboundVar name))
         | Some value -> value
       in
-      vm.regs.(dest) <- parse_var ~typ ~raw_string
+      vm.regs.(dest) <- alloc_var ~typ ~raw_value
     | CheckEnoughFunds { got; needed } ->
       let got = read_int vm.regs.(got) in
       let needed = read_int vm.regs.(needed) in
