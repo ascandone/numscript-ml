@@ -130,7 +130,7 @@ let rec pull_source ?cap ctx =
     in
     let max_overdraft_amount = int64_to_non_neg max_overdraft_amount in
     (* -- eval *)
-    let acc_balance = Run_state.get_account_balance ctx.run_state name in
+    let acc_balance = Run_state.get_account_balance ctx.run_state ~account:name in
     let amt =
       match cap with
       | None -> int64_to_non_neg (Int64.add acc_balance max_overdraft_amount)

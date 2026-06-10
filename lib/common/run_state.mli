@@ -1,8 +1,11 @@
-include module type of Run_state_intf
+include module type of Run_state_intf with type run_state := Run_state_intf.run_state
+
+type run_state
 
 val create : unit -> run_state
+val set_current_asset : run_state -> string -> unit
 val set_balances : run_state -> int64 PairsMap.t -> unit
-val get_account_balance : run_state -> string -> int64
+val get_account_balance : account:string -> ?asset:string -> run_state -> int64
 
 (* source *)
 val pull

@@ -8,21 +8,23 @@ let create () =
   }
 ;;
 
+let set_current_asset st asset = st.current_asset := asset
+
 let set_balances st balances =
   let balances = PairsMap.to_seq balances |> Hashtbl.of_seq in
   st.balances <- balances
 ;;
 
-let get_account_balance state name =
-  Hashtbl.find_opt state.balances (name, !(state.current_asset))
-  |> Option.value ~default:0L
+let get_account_balance ~account ?asset state =
+  let asset = Option.value asset ~default:!(state.current_asset) in
+  Hashtbl.find_opt state.balances (account, asset) |> Option.value ~default:0L
 ;;
 
 let int64_to_non_neg = Int64.max 0L
 
 let pull ?(overdraft_bound = Some 0L) ~source ~cap ctx =
   let cap = int64_to_non_neg cap in
-  let current_bal = get_account_balance ctx source in
+  let current_bal = get_account_balance ~account:source ctx in
   let available_amount_to_pull =
     match overdraft_bound with
     | None -> cap
@@ -41,7 +43,7 @@ let pull ?(overdraft_bound = Some 0L) ~source ~cap ctx =
 ;;
 
 let pull_uncapped ?(overdraft_bound = 0L) ~source ctx =
-  let current_bal = get_account_balance ctx source in
+  let current_bal = get_account_balance ctx ~account:source in
   let available = Int64.max 0L (Int64.add current_bal overdraft_bound) in
   if available > 0L
   then (

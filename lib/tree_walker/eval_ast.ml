@@ -1,6 +1,8 @@
+open Common
+
 type 'asset ctx =
   { vars : (string, Value.t) Hashtbl.t
-  ; balance_lookup : string -> string -> int64
+  ; state : Run_state.run_state
   }
 
 let rec eval_expr ctx =
@@ -34,7 +36,7 @@ let rec eval_expr ctx =
   | Ast.ExprFnCall ("balance", [ acc_expr; asset_expr ]) ->
     let account = Value.expect (eval_expr ctx acc_expr) Value.expect_asset in
     let asset = Value.expect (eval_expr ctx asset_expr) Value.expect_asset in
-    Value.Monetary (asset, ctx.balance_lookup account asset)
+    Value.Monetary (asset, Run_state.get_account_balance ctx.state ~account ~asset)
   | Ast.ExprFnCall (name, _) -> failwith (Format.sprintf "Unknown function: %s" name)
 ;;
 

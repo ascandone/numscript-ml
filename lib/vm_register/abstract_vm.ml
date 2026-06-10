@@ -100,7 +100,7 @@ let run_raise ~vars ~balances vm =
       if not (Int64.equal got needed) then raise (RunError MissingFunds)
     | SetCurrentAsset { asset } ->
       let asset = read_string vm.regs.(asset) in
-      vm.run_state.current_asset := asset
+      Run_state.set_current_asset vm.run_state asset
     | LoadConst { dest; value = `String str } -> vm.regs.(dest) <- Value_String str
     | Label _ -> ()
     | LoadConst { dest; value = `Int n } -> vm.regs.(dest) <- Value_Int n

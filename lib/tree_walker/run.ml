@@ -109,60 +109,18 @@ let rec send_to_dest ctx ~amt_left = function
 
 and send_to_kept_or_dest ctx cap = function
   | Ast_canonical.Kept ->
-    let rec restore remaining =
-      if remaining <= 0L
-      then ()
-      else (
-        match pop_first_opt ctx.sources with
-        | None -> ()
-        | Some (source, avl_amt) ->
-          let restored = min avl_amt remaining in
-          let bal = Run_state.get_account_balance ctx !(ctx.current_asset) in
-          Hashtbl.replace
-            ctx.balances
-            (source, !(ctx.current_asset))
-            (Int64.add bal restored);
-          if avl_amt > remaining
-          then add_left ctx.sources (source, Int64.sub avl_amt remaining);
-          restore (Int64.sub remaining restored))
-    in
+    let rec restore remaining = failwith "TODO kept" in
     restore cap
   | Ast_canonical.Dest dest -> send_to_dest ctx dest ~amt_left:cap
 ;;
 
-let dedup_postings postings =
-  let tbl = Hashtbl.create 8 in
-  let order = Queue.create () in
-  List.iter
-    (fun (p : posting) ->
-       let key = p.source, p.destination, p.asset in
-       match Hashtbl.find_opt tbl key with
-       | None ->
-         Queue.add key order;
-         Hashtbl.add tbl key p.amount
-       | Some n -> Hashtbl.replace tbl key (Int64.add n p.amount))
-    postings;
-  Queue.to_seq order
-  |> List.of_seq
-  |> List.map (fun ((source, destination, asset) as key) ->
-    { source; destination; asset; amount = Hashtbl.find tbl key })
-;;
-
-let flush_stmt_postings global_q stmt_q =
-  stmt_q
-  |> Queue.to_seq
-  |> List.of_seq
-  |> dedup_postings
-  |> List.iter (fun p -> Queue.add p global_q)
-;;
-
 let run_stmt (ctx : Run_state.run_state) = function
   | Ast_canonical.StmtSend { asset; amount; source; destination } ->
-    ctx.current_asset := asset;
+    Run_state.set_current_asset ctx asset;
     let _amt_got = pull_amt ctx ~needed_amt:amount source in
     send_to_dest ctx ~amt_left:amount destination
   | Ast_canonical.StmtSendAll { asset; source; destination } ->
-    ctx.current_asset := asset;
+    Run_state.set_current_asset ctx asset;
     let amt_got = pull_source ctx source in
     send_to_dest ctx ~amt_left:amt_got destination
   | Ast_canonical.Save _ -> failwith "TODO save"
@@ -186,11 +144,7 @@ let run_program ~vars ~balances (program : Syntax.Ast.program) =
   let run_ctx : ctx = Run_state.create () in
   Run_state.set_balances run_ctx balances;
   let eval_ctx : unit Eval_ast.ctx =
-    { vars = Hashtbl.create 10
-    ; balance_lookup =
-        (fun account asset ->
-          Hashtbl.find_opt run_ctx.balances (account, asset) |> Option.value ~default:0L)
-    }
+    { vars = Hashtbl.create 10; state = Run_state.create () }
   in
   List.iter
     (fun (v : Syntax.Ast.var) ->
