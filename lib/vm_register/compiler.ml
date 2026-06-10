@@ -106,6 +106,26 @@ and compile_expr_to ~dest ~(copy : [> `int_copy | `portion_copy ]) ctx expr =
   Ok ()
 ;;
 
+let compile_allot ~cap_reg ctx clauses =
+  let ( let* ) = Result.bind in
+  let* portions_arr =
+    map_result
+      (fun (por, _) ->
+         match por with
+         | None -> failwith "[TODO] remaining clause in allot"
+         | Some por_expr -> compile_expr ctx por_expr)
+      clauses
+  in
+  let allots_regs =
+    List.map (fun (_por, sub_src) -> sub_src, get_fresh_dest ctx) clauses
+  in
+  push_instruction
+    ctx
+    (Virtual_instruction.MkAllotment
+       { dest_arr = List.map snd allots_regs; portions_arr; amount = cap_reg });
+  Ok allots_regs
+;;
+
 (** returns the register holding the total amount pulled  *)
 let rec compile_source ~cap_reg ctx (source : Ast.source) =
   let ( let* ) = Result.bind in
@@ -225,22 +245,7 @@ let rec compile_source ~cap_reg ctx (source : Ast.source) =
     in
     compile_source ~cap_reg:(Some cap_reg) ctx sub_src
   | Ast.SrcAllotment clauses, Some cap_reg ->
-    let* portions_arr =
-      map_result
-        (fun (por, _) ->
-           match por with
-           | None -> failwith "[TODO] remaining clause in allot"
-           | Some por_expr -> compile_expr ctx por_expr)
-        clauses
-    in
-    let allots_regs =
-      List.map (fun (_por, sub_src) -> sub_src, get_fresh_dest ctx) clauses
-    in
-    push_instruction
-      ctx
-      (Virtual_instruction.MkAllotment
-         { dest_arr = List.map snd allots_regs; portions_arr; amount = cap_reg });
-    (* Now that we know how much should each clause be capped with, we compile the sub-sources *)
+    let* allots_regs = compile_allot ctx ~cap_reg clauses in
     let* () =
       iter_result
         (fun (subsrc, cap_reg) ->
@@ -293,33 +298,12 @@ let rec compile_dest ~pulled_amt_reg ~current_cap ctx =
     in
     compile_kept_or_dest ~pulled_amt_reg ~current_cap ctx remaining
   | Ast.DestAllotment clauses ->
-    (* -- dedup this part from src *)
-    let* portions_arr =
-      map_result
-        (fun (por, _) ->
-           match por with
-           | None -> failwith "[TODO] remaining clause in allot"
-           | Some por_expr -> compile_expr ctx por_expr)
-        clauses
-    in
-    let allots_regs =
-      List.map (fun (_por, sub_src) -> sub_src, get_fresh_dest ctx) clauses
-    in
-    push_instruction
-      ctx
-      (Virtual_instruction.MkAllotment
-         { dest_arr = List.map snd allots_regs; portions_arr; amount = current_cap });
-    (* -- end dedup *)
-    let* () =
-      iter_result
-        (fun (subdest, pulled_amt_reg) ->
-           let* _dest_reg =
-             compile_kept_or_dest ~pulled_amt_reg ~current_cap ctx subdest
-           in
-           Ok ())
-        allots_regs
-    in
-    Ok ()
+    let* allots_regs = compile_allot ctx ~cap_reg:current_cap clauses in
+    iter_result
+      (fun (subdest, pulled_amt_reg) ->
+         let* _dest_reg = compile_kept_or_dest ~pulled_amt_reg ~current_cap ctx subdest in
+         Ok ())
+      allots_regs
 
 and compile_kept_or_dest ~pulled_amt_reg ~current_cap ctx = function
   | Ast.Dest account_expr -> compile_dest ~pulled_amt_reg ~current_cap ctx account_expr
