@@ -66,6 +66,8 @@ let create ~instructions =
 
 exception RunError of run_error
 
+let world_account = "world"
+
 let run_raise ~vars:_ ~balances vm =
   Run_state.set_balances vm.run_state balances;
   let pc = ref 0 in
@@ -111,13 +113,16 @@ let run_raise ~vars:_ ~balances vm =
             vm.run_state
             ~source:account
             ~cap
-            ~overdraft_bound:(Some overdraft_bound)
+            ~overdraft_bound:
+              (if String.equal world_account account then None else Some overdraft_bound)
       in
       vm.regs.(dest) <- Value_Int pulled
     | PullAccountUnboundedOverdraft { dest; account; cap } ->
       let cap = read_int vm.regs.(cap) in
       let account = read_string vm.regs.(account) in
-      let pulled = Run_state.pull vm.run_state ~source:account ~cap in
+      let pulled =
+        Run_state.pull ~overdraft_bound:None vm.run_state ~source:account ~cap
+      in
       vm.regs.(dest) <- Value_Int pulled
     | SendToAccount { cap = None; account } ->
       let dest = read_string vm.regs.(account) in
