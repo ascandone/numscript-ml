@@ -275,7 +275,38 @@ let rec compile_dest ~pulled_amt_reg ~current_cap ctx =
         clauses
     in
     compile_kept_or_dest ~pulled_amt_reg ~current_cap ctx remaining
-  | Ast.DestAllotment _ -> failwith "[TODO] impl allotment dest"
+  | Ast.DestAllotment clauses ->
+    (* -- dedup this part from src *)
+    let portions_arr = List.map (fun (por, _) -> por, get_fresh_dest ctx) clauses in
+    let _, portions_arr_start_reg = List.hd portions_arr in
+    List.iter
+      (fun (por, por_reg) ->
+         match por with
+         | None -> failwith "[TODO] remaining clause in allot"
+         | Some por_expr -> compile_expr_to ~dest:por_reg ctx por_expr)
+      portions_arr;
+    let allots_regs =
+      List.map (fun (_por, sub_src) -> sub_src, get_fresh_dest ctx) clauses
+    in
+    let _, dest_start = List.hd allots_regs in
+    push_instruction
+      ctx
+      (Virtual_instruction.MkAllotment
+         { dest_start
+         ; portions_arr = portions_arr_start_reg, List.length portions_arr
+         ; amount = current_cap
+         });
+    (* -- end dedup *)
+    let* () =
+      iter_result
+        (fun (subdest, pulled_amt_reg) ->
+           let* _dest_reg =
+             compile_kept_or_dest ~pulled_amt_reg ~current_cap ctx subdest
+           in
+           Ok ())
+        allots_regs
+    in
+    Ok ()
 
 and compile_kept_or_dest ~pulled_amt_reg ~current_cap ctx = function
   | Ast.Dest account_expr -> compile_dest ~pulled_amt_reg ~current_cap ctx account_expr
@@ -776,5 +807,41 @@ let%expect_test "allotment src" =
     check_enough_funds($r4, $r4)
     $r17 <- load_const("dest")
     send_to_account_uncapped($r17)
+    |}]
+;;
+
+let%expect_test "allotment dest" =
+  test_compiled
+    {|
+    send [USD/2 10] (
+      source = @src
+      destination = {
+        1/4 to @d1
+        3/4 to @d2
+      }
+    )
+  |};
+  [%expect
+    {|
+    $r1 <- load_const("USD/2")
+    $r2 <- load_const(10)
+    $r0 <- mk_monetary($r1, $r2)
+    $r3 <- get_asset($r0)
+    set_current_asset($r3)
+    $r4 <- get_amount($r0)
+    $r5 <- load_const("src")
+    $r6 <- pull_account(account: $r5, cap: $r4)
+    check_enough_funds($r6, $r4)
+    $r9 <- load_const(1)
+    $r10 <- load_const(4)
+    $r7 <- mk_portion($r9, $r10)
+    $r11 <- load_const(3)
+    $r12 <- load_const(4)
+    $r8 <- mk_portion($r11, $r12)
+    $r13..$r14 <- mk_allot($r6, $r7..$r8)
+    $r15 <- load_const("d1")
+    send_to_account_capped($r15, $r13)
+    $r16 <- load_const("d2")
+    send_to_account_capped($r16, $r14)
     |}]
 ;;
