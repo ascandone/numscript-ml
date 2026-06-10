@@ -61,7 +61,7 @@ type t =
       ; portions_arr : reg * int
       }
   | SendToAccount of
-      { account : reg
+      { account : reg option
       ; cap : reg option
       }
   | LoadConst of
@@ -94,10 +94,20 @@ let pp fmt = function
   | SetCurrentAsset { asset } -> Format.fprintf fmt "set_current_asset(%a)" pp_reg asset
   | LoadConst { dest; value } ->
     Format.fprintf fmt "%a <- load_const(%a)" pp_reg dest pp_const_value value
-  | SendToAccount { account; cap = None } ->
-    Format.fprintf fmt "send_to_account_uncapped(%a)" pp_reg account
-  | SendToAccount { account; cap = Some cap } ->
-    Format.fprintf fmt "send_to_account_capped(%a, %a)" pp_reg account pp_reg cap
+  | SendToAccount { account = None; cap } ->
+    let cap_label =
+      match cap with
+      | None -> ""
+      | Some cap -> Format.asprintf "cap: %a" pp_reg cap
+    in
+    Format.fprintf fmt "kept(%s)" cap_label
+  | SendToAccount { account = Some account; cap } ->
+    let cap_label =
+      match cap with
+      | None -> ""
+      | Some cap -> Format.asprintf ", cap: %a" pp_reg cap
+    in
+    Format.fprintf fmt "send_to_account(%a%s)" pp_reg account cap_label
   | PullAccount { dest; account; cap; overdraft } ->
     let cap_label =
       match cap with

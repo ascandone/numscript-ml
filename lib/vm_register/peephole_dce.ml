@@ -13,7 +13,8 @@ let get_used_args =
   | UnaryOp { arg; _ } -> [ arg ]
   | JmpIfZero { value } -> [ value ]
   | CheckEnoughFunds { got; needed } -> [ got; needed ]
-  | SendToAccount { account; cap } -> account :: Option.to_list cap
+  | SendToAccount { account; cap } ->
+    List.concat [ Option.to_list account; Option.to_list cap ]
   | PullAccountUnboundedOverdraft { account; cap } -> [ account; cap ]
   | PullAccount { account; cap; overdraft } ->
     account :: List.concat [ Option.to_list cap; overdraft_to_reg_list overdraft ]

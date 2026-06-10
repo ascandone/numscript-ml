@@ -103,7 +103,7 @@ let add_posting ctx ~source ~destination ~asset ~amount =
     Hashtbl.replace ctx.balances (destination, asset) (Int64.add dst_bal amount))
 ;;
 
-let rec send ~dest:destination ~cap ctx =
+let rec send ?dest ~cap ctx =
   if cap <= 0L
   then ()
   else (
@@ -111,23 +111,44 @@ let rec send ~dest:destination ~cap ctx =
     | None -> ()
     | Some (source, avl_amt) ->
       let asset = !(ctx.current_asset) in
+      let credit amount =
+        match dest with
+        | Some destination -> add_posting ctx ~source ~destination ~asset ~amount
+        | None ->
+          (* Kept: refund the source. Consume funding, no posting. *)
+          if amount > 0L
+          then (
+            let src_bal =
+              Hashtbl.find_opt ctx.balances (source, asset) |> Option.value ~default:0L
+            in
+            Hashtbl.replace ctx.balances (source, asset) (Int64.add src_bal amount))
+      in
       if avl_amt >= cap
       then (
-        add_posting ctx ~source ~destination ~asset ~amount:cap;
+        credit cap;
         let diff = Int64.sub avl_amt cap in
         if diff > 0L then add_left ctx.sources (source, diff))
       else (
-        add_posting ctx ~source ~destination ~asset ~amount:avl_amt;
-        send ctx ~dest:destination ~cap:(Int64.sub cap avl_amt)))
+        credit avl_amt;
+        send ctx ?dest ~cap:(Int64.sub cap avl_amt)))
 ;;
 
-let rec send_uncapped ~dest:destination ctx =
+let rec send_uncapped ?dest ctx =
   match pop_first_opt ctx.sources with
   | None -> ()
   | Some (source, avl_amt) ->
     if avl_amt > 0L
-    then add_posting ctx ~source ~destination ~asset:!(ctx.current_asset) ~amount:avl_amt;
-    send_uncapped ~dest:destination ctx
+    then (
+      match dest with
+      | Some destination ->
+        add_posting ctx ~source ~destination ~asset:!(ctx.current_asset) ~amount:avl_amt
+      | None ->
+        let asset = !(ctx.current_asset) in
+        let src_bal =
+          Hashtbl.find_opt ctx.balances (source, asset) |> Option.value ~default:0L
+        in
+        Hashtbl.replace ctx.balances (source, asset) (Int64.add src_bal avl_amt));
+    send_uncapped ?dest ctx
 ;;
 
 let get_postings ctx = Dynarray.to_list ctx.postings

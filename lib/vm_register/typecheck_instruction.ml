@@ -59,7 +59,7 @@ let push_instruction state =
     check_reg cap Reg_type.int;
     declare_reg dest Reg_type.int
   | Virtual_instruction.SendToAccount { account; cap } ->
-    check_reg account Reg_type.string;
+    Option.iter (fun account -> check_reg account Reg_type.string) account;
     Option.iter (fun cap -> check_reg cap Reg_type.int) cap
   | Virtual_instruction.Label _ ->
     (* TODO check label only jump forward *)

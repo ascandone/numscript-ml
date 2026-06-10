@@ -140,12 +140,12 @@ let run_raise ~vars ~balances vm =
       in
       vm.regs.(dest) <- Value_Int pulled
     | SendToAccount { cap = None; account } ->
-      let dest = read_string vm.regs.(account) in
-      Run_state.send_uncapped ~dest vm.run_state
+      let dest = Option.map (fun account -> read_string vm.regs.(account)) account in
+      Run_state.send_uncapped ?dest vm.run_state
     | SendToAccount { cap = Some cap; account } ->
       let cap = read_int vm.regs.(cap) in
-      let dest = read_string vm.regs.(account) in
-      Run_state.send ~dest ~cap vm.run_state
+      let dest = Option.map (fun account -> read_string vm.regs.(account)) account in
+      Run_state.send ?dest ~cap vm.run_state
     | BinaryOp { op = `add_int; dest; left; right } ->
       let left = read_int vm.regs.(left) in
       let right = read_int vm.regs.(right) in
