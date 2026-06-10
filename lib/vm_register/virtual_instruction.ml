@@ -10,6 +10,7 @@ type unary_op =
   [ `get_amount
   | `get_asset
   | `int_copy
+  | `portion_copy
   ]
 [@@deriving show { with_path = false }]
 

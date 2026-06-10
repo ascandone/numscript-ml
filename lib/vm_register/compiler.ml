@@ -14,6 +14,7 @@ type ctx =
   ; next_reg : int ref
   ; next_label_id : int ref
   ; typecheck_state : Typecheck_instruction.typecheck_state
+  ; vars : (string, int) Hashtbl.t
   }
 
 let get_fresh_dest ctx =
@@ -48,15 +49,28 @@ let binop_of_infix (expr : Ast.binop) : Virtual_instruction.binary_op =
   | Ast.Div -> `mk_portion
 ;;
 
-let rec compile_expr_to ~dest ctx = function
-  | Ast.ExprVar _ -> failwith "[TODO] var"
+let rec compile_expr ctx =
+  let ( let* ) = Result.bind in
+  function
+  | Ast.ExprVar var_name ->
+    let* var_reg =
+      Hashtbl.find_opt ctx.vars var_name
+      |> Option.to_result ~none:(Common.UnboundVar var_name)
+    in
+    Ok var_reg
   | Ast.ExprAccount str | Ast.ExprAsset str | Ast.ExprString str ->
-    push_instruction ctx @@ Virtual_instruction.LoadConst { value = `String str; dest }
+    let dest =
+      push_instruction_dest ctx (fun dest ->
+        Virtual_instruction.LoadConst { value = `String str; dest })
+    in
+    Ok dest
   | Ast.ExprInt n ->
-    push_instruction ctx
-    @@ Virtual_instruction.LoadConst { value = `Int (Int64.of_int n); dest }
-  | Ast.ExprMonetaryLit (asset, amount) ->
-    compile_infix ~dest ~op:`mk_monetary ctx asset amount
+    let dest =
+      push_instruction_dest ctx (fun dest ->
+        Virtual_instruction.LoadConst { value = `Int (Int64.of_int n); dest })
+    in
+    Ok dest
+  | Ast.ExprMonetaryLit (asset, amount) -> compile_infix ~op:`mk_monetary ctx asset amount
   | Ast.ExprInfix (op, left, right) ->
     let op =
       match op with
@@ -64,19 +78,23 @@ let rec compile_expr_to ~dest ctx = function
       | Ast.Sub -> `sub_int
       | Ast.Div -> `mk_portion
     in
-    compile_infix ~dest ~op ctx left right
+    compile_infix ~op ctx left right
   | Ast.ExprPerc _ -> failwith "[TODO] perc"
   | Ast.ExprFnCall _ -> failwith "[TODO] fn call"
 
-and compile_infix ~dest ~(op : Virtual_instruction.binary_op) ctx left right =
-  let left = compile_expr ctx left in
-  let right = compile_expr ctx right in
-  push_instruction ctx @@ Virtual_instruction.BinaryOp { op; left; right; dest }
-
-and compile_expr ctx expr =
+and compile_infix ~(op : Virtual_instruction.binary_op) ctx left right =
+  let ( let* ) = Result.bind in
+  let* left = compile_expr ctx left in
+  let* right = compile_expr ctx right in
   let dest = get_fresh_dest ctx in
-  compile_expr_to ctx ~dest expr;
-  dest
+  push_instruction ctx @@ Virtual_instruction.BinaryOp { op; left; right; dest };
+  Ok dest
+
+and compile_expr_to ~dest ~(copy : [> `int_copy | `portion_copy ]) ctx expr =
+  let ( let* ) = Result.bind in
+  let* inner_dest = compile_expr ctx expr in
+  push_instruction ctx (Virtual_instruction.UnaryOp { op = copy; arg = inner_dest; dest });
+  Ok ()
 ;;
 
 (** returns the register holding the total amount pulled  *)
@@ -87,15 +105,15 @@ let rec compile_source ~cap_reg ctx (source : Ast.source) =
   | Ast.SrcAccountOverdraft { max_overdraft = None; _ }, None ->
     Error Common.UncappedUnboundedOverdraft
   | Ast.SrcAccountOverdraft { max_overdraft = None; account }, Some cap ->
-    let account = compile_expr ctx account in
+    let* account = compile_expr ctx account in
     let dest =
       push_instruction_dest ctx (fun dest ->
         Virtual_instruction.PullAccountUnboundedOverdraft { cap; account; dest })
     in
     Ok dest
   | Ast.SrcAccountOverdraft { account; max_overdraft = Some max_overdraft }, cap ->
-    let account = compile_expr ctx account in
-    let overdraft_bound_monetary = compile_expr ctx max_overdraft in
+    let* account = compile_expr ctx account in
+    let* overdraft_bound_monetary = compile_expr ctx max_overdraft in
     let overdraft_bound_int =
       push_instruction_dest ctx (fun dest ->
         Virtual_instruction.UnaryOp
@@ -108,7 +126,7 @@ let rec compile_source ~cap_reg ctx (source : Ast.source) =
     in
     Ok dest
   | Ast.SrcAccount name, cap ->
-    let account = compile_expr ctx name in
+    let* account = compile_expr ctx name in
     let dest = get_fresh_dest ctx in
     push_instruction
       ctx
@@ -182,7 +200,7 @@ let rec compile_source ~cap_reg ctx (source : Ast.source) =
     push_instruction ctx (Virtual_instruction.Label end_label);
     Ok inorder_total_reg
   | Ast.SrcMax (clause_cap, sub_src), _ ->
-    let clause_cap_monetary_reg = compile_expr ctx clause_cap in
+    let* clause_cap_monetary_reg = compile_expr ctx clause_cap in
     let clause_cap_int_reg =
       push_instruction_dest ctx (fun dest ->
         Virtual_instruction.UnaryOp
@@ -208,12 +226,15 @@ let rec compile_source ~cap_reg ctx (source : Ast.source) =
       List.map (fun (por, _) -> por, get_fresh_dest ctx) clauses
     in
     let _, portions_arr_start_reg = List.hd portions_arr in
-    List.iter
-      (fun (por, por_reg) ->
-         match por with
-         | None -> failwith "[TODO] remaining clause in allot"
-         | Some por_expr -> compile_expr_to ~dest:por_reg ctx por_expr)
-      portions_arr;
+    let* () =
+      iter_result
+        (fun (por, por_reg) ->
+           match por with
+           | None -> failwith "[TODO] remaining clause in allot"
+           | Some por_expr ->
+             compile_expr_to ~copy:`portion_copy ~dest:por_reg ctx por_expr)
+        portions_arr
+    in
     let allots_regs =
       List.map (fun (_por, sub_src) -> sub_src, get_fresh_dest ctx) clauses
     in
@@ -246,7 +267,7 @@ let rec compile_dest ~pulled_amt_reg ~current_cap ctx =
   let ( let* ) = Result.bind in
   function
   | Ast.DestAccount account_expr ->
-    let account = compile_expr ctx account_expr in
+    let* account = compile_expr ctx account_expr in
     let cap =
       if Int.equal pulled_amt_reg current_cap then None else Some pulled_amt_reg
     in
@@ -256,7 +277,7 @@ let rec compile_dest ~pulled_amt_reg ~current_cap ctx =
     let* () =
       iter_result
         (fun ({ cap; dest } : Ast.dest_inorder_clause) ->
-           let cap_monetary_reg = compile_expr ctx cap in
+           let* cap_monetary_reg = compile_expr ctx cap in
            let inner_pulled_amt_reg =
              push_instruction_dest ctx (fun dest ->
                Virtual_instruction.UnaryOp
@@ -279,12 +300,15 @@ let rec compile_dest ~pulled_amt_reg ~current_cap ctx =
     (* -- dedup this part from src *)
     let portions_arr = List.map (fun (por, _) -> por, get_fresh_dest ctx) clauses in
     let _, portions_arr_start_reg = List.hd portions_arr in
-    List.iter
-      (fun (por, por_reg) ->
-         match por with
-         | None -> failwith "[TODO] remaining clause in allot"
-         | Some por_expr -> compile_expr_to ~dest:por_reg ctx por_expr)
-      portions_arr;
+    let* () =
+      iter_result
+        (fun (por, por_reg) ->
+           match por with
+           | None -> failwith "[TODO] remaining clause in allot"
+           | Some por_expr ->
+             compile_expr_to ~copy:`portion_copy ~dest:por_reg ctx por_expr)
+        portions_arr
+    in
     let allots_regs =
       List.map (fun (_por, sub_src) -> sub_src, get_fresh_dest ctx) clauses
     in
@@ -317,7 +341,7 @@ let compile_stmt ctx =
   let ( let* ) = Result.bind in
   function
   | Ast.StmtSend { monetary; source; destination } ->
-    let monetary_reg = compile_expr ctx monetary in
+    let* monetary_reg = compile_expr ctx monetary in
     let asset_reg =
       push_instruction_dest ctx (fun dest ->
         Virtual_instruction.UnaryOp { op = `get_asset; arg = monetary_reg; dest })
@@ -331,13 +355,29 @@ let compile_stmt ctx =
     let* () = compile_dest ~pulled_amt_reg ~current_cap:pulled_amt_reg ctx destination in
     Ok ()
   | Ast.StmtSendAll { asset; source; destination } ->
-    let asset_reg = compile_expr ctx asset in
+    let* asset_reg = compile_expr ctx asset in
     push_instruction ctx (Virtual_instruction.SetCurrentAsset { asset = asset_reg });
     let* pulled_amt_reg = compile_source ~cap_reg:None ctx source in
     let* () = compile_dest ~pulled_amt_reg ~current_cap:pulled_amt_reg ctx destination in
     Ok ()
   | Ast.Save _ -> failwith "[TODO] compile stmt"
   | Ast.FnStatement _ -> failwith "[TODO] compile stmt"
+;;
+
+let compile_var_def ctx (var_ : Ast.var) =
+  let ( let* ) = Result.bind in
+  (* check var is not shadowing another one *)
+  let* () =
+    match Hashtbl.find_opt ctx.vars var_.name with
+    | None -> Ok ()
+    | Some _previous_lookup -> Error (Common.DuplicateVar var_.name)
+  in
+  match var_.value with
+  | None -> failwith "[TODO] external var"
+  | Some var_def ->
+    let* var_reg = compile_expr ctx var_def in
+    Hashtbl.replace ctx.vars var_.name var_reg;
+    Ok ()
 ;;
 
 let compile_parsed (program : Ast.program) =
@@ -347,8 +387,10 @@ let compile_parsed (program : Ast.program) =
     ; next_reg = ref 0
     ; next_label_id = ref 0
     ; typecheck_state = Typecheck_instruction.create_state ()
+    ; vars = Hashtbl.create 4
     }
   in
+  let* () = iter_result (compile_var_def ctx) program.vars in
   let* () = iter_result (compile_stmt ctx) program.statements in
   let compiled : compiled_program =
     { instructions = Dynarray.to_array ctx.instructions }
@@ -391,12 +433,12 @@ let%expect_test "simple program" =
   |};
   [%expect
     {|
-    $r1 <- load_const("USD/2")
-    $r2 <- load_const(10)
-    $r0 <- mk_monetary($r1, $r2)
-    $r3 <- get_asset($r0)
+    $r0 <- load_const("USD/2")
+    $r1 <- load_const(10)
+    $r2 <- mk_monetary($r0, $r1)
+    $r3 <- get_asset($r2)
     set_current_asset($r3)
-    $r4 <- get_amount($r0)
+    $r4 <- get_amount($r2)
     $r5 <- load_const("src")
     $r6 <- pull_account(account: $r5, cap: $r4)
     check_enough_funds($r6, $r4)
@@ -440,12 +482,12 @@ let%expect_test "inorder" =
   |};
   [%expect
     {|
-    $r1 <- load_const("USD/2")
-    $r2 <- load_const(10)
-    $r0 <- mk_monetary($r1, $r2)
-    $r3 <- get_asset($r0)
+    $r0 <- load_const("USD/2")
+    $r1 <- load_const(10)
+    $r2 <- mk_monetary($r0, $r1)
+    $r3 <- get_asset($r2)
     set_current_asset($r3)
-    $r4 <- get_amount($r0)
+    $r4 <- get_amount($r2)
     $r5 <- load_const(0)
     $r6 <- int_copy($r4)
     $r7 <- load_const("s1")
@@ -473,16 +515,16 @@ let%expect_test "top level max" =
   |};
   [%expect
     {|
-    $r1 <- load_const("USD/2")
-    $r2 <- load_const(10)
-    $r0 <- mk_monetary($r1, $r2)
-    $r3 <- get_asset($r0)
+    $r0 <- load_const("USD/2")
+    $r1 <- load_const(10)
+    $r2 <- mk_monetary($r0, $r1)
+    $r3 <- get_asset($r2)
     set_current_asset($r3)
-    $r4 <- get_amount($r0)
-    $r6 <- load_const("USD/2")
-    $r7 <- load_const(5)
-    $r5 <- mk_monetary($r6, $r7)
-    $r8 <- get_amount($r5)
+    $r4 <- get_amount($r2)
+    $r5 <- load_const("USD/2")
+    $r6 <- load_const(5)
+    $r7 <- mk_monetary($r5, $r6)
+    $r8 <- get_amount($r7)
     $r9 <- min_int($r8, $r4)
     $r10 <- load_const("s1")
     $r11 <- pull_account(account: $r10, cap: $r9)
@@ -504,10 +546,10 @@ let%expect_test "top level max on unbounded" =
     {|
     $r0 <- load_const("USD/2")
     set_current_asset($r0)
-    $r2 <- load_const("USD/2")
-    $r3 <- load_const(5)
-    $r1 <- mk_monetary($r2, $r3)
-    $r4 <- get_amount($r1)
+    $r1 <- load_const("USD/2")
+    $r2 <- load_const(5)
+    $r3 <- mk_monetary($r1, $r2)
+    $r4 <- get_amount($r3)
     $r5 <- load_const("s1")
     $r6 <- pull_account(account: $r5, cap: $r4)
     $r7 <- load_const("dest")
@@ -528,18 +570,18 @@ let%expect_test "capped + inorder" =
   |};
   [%expect
     {|
-    $r1 <- load_const("USD/2")
-    $r2 <- load_const(10)
-    $r0 <- mk_monetary($r1, $r2)
-    $r3 <- get_asset($r0)
+    $r0 <- load_const("USD/2")
+    $r1 <- load_const(10)
+    $r2 <- mk_monetary($r0, $r1)
+    $r3 <- get_asset($r2)
     set_current_asset($r3)
-    $r4 <- get_amount($r0)
+    $r4 <- get_amount($r2)
     $r5 <- load_const(0)
     $r6 <- int_copy($r4)
-    $r8 <- load_const("USD/2")
-    $r9 <- load_const(5)
-    $r7 <- mk_monetary($r8, $r9)
-    $r10 <- get_amount($r7)
+    $r7 <- load_const("USD/2")
+    $r8 <- load_const(5)
+    $r9 <- mk_monetary($r7, $r8)
+    $r10 <- get_amount($r9)
     $r11 <- min_int($r10, $r6)
     $r12 <- load_const("s1")
     $r13 <- pull_account(account: $r12, cap: $r11)
@@ -603,12 +645,12 @@ let%expect_test "inorder dest remaining" =
   |};
   [%expect
     {|
-    $r1 <- load_const("USD/2")
-    $r2 <- load_const(10)
-    $r0 <- mk_monetary($r1, $r2)
-    $r3 <- get_asset($r0)
+    $r0 <- load_const("USD/2")
+    $r1 <- load_const(10)
+    $r2 <- mk_monetary($r0, $r1)
+    $r3 <- get_asset($r2)
     set_current_asset($r3)
-    $r4 <- get_amount($r0)
+    $r4 <- get_amount($r2)
     $r5 <- load_const("src")
     $r6 <- pull_account(account: $r5, cap: $r4)
     check_enough_funds($r6, $r4)
@@ -630,19 +672,19 @@ let%expect_test "inorder dest clauses" =
   |};
   [%expect
     {|
-    $r1 <- load_const("USD/2")
-    $r2 <- load_const(10)
-    $r0 <- mk_monetary($r1, $r2)
-    $r3 <- get_asset($r0)
+    $r0 <- load_const("USD/2")
+    $r1 <- load_const(10)
+    $r2 <- mk_monetary($r0, $r1)
+    $r3 <- get_asset($r2)
     set_current_asset($r3)
-    $r4 <- get_amount($r0)
+    $r4 <- get_amount($r2)
     $r5 <- load_const("src")
     $r6 <- pull_account(account: $r5, cap: $r4)
     check_enough_funds($r6, $r4)
-    $r8 <- load_const("USD/2")
-    $r9 <- load_const(5)
-    $r7 <- mk_monetary($r8, $r9)
-    $r10 <- get_amount($r7)
+    $r7 <- load_const("USD/2")
+    $r8 <- load_const(5)
+    $r9 <- mk_monetary($r7, $r8)
+    $r10 <- get_amount($r9)
     $r11 <- min_int($r6, $r10)
     $r12 <- load_const("dest:capped")
     send_to_account_capped($r12, $r11)
@@ -707,12 +749,12 @@ let%expect_test "unbounded overdraft" =
   |};
   [%expect
     {|
-    $r1 <- load_const("USD/2")
-    $r2 <- load_const(42)
-    $r0 <- mk_monetary($r1, $r2)
-    $r3 <- get_asset($r0)
+    $r0 <- load_const("USD/2")
+    $r1 <- load_const(42)
+    $r2 <- mk_monetary($r0, $r1)
+    $r3 <- get_asset($r2)
     set_current_asset($r3)
-    $r4 <- get_amount($r0)
+    $r4 <- get_amount($r2)
     $r5 <- load_const("src")
     $r6 <- pull_account_unbounded_overdraft(account: $r5, cap: $r4)
     check_enough_funds($r6, $r4)
@@ -731,17 +773,17 @@ let%expect_test "bounded overdraft (capped)" =
   |};
   [%expect
     {|
-    $r1 <- load_const("USD/2")
-    $r2 <- load_const(42)
-    $r0 <- mk_monetary($r1, $r2)
-    $r3 <- get_asset($r0)
+    $r0 <- load_const("USD/2")
+    $r1 <- load_const(42)
+    $r2 <- mk_monetary($r0, $r1)
+    $r3 <- get_asset($r2)
     set_current_asset($r3)
-    $r4 <- get_amount($r0)
+    $r4 <- get_amount($r2)
     $r5 <- load_const("src")
-    $r7 <- load_const("USD/2")
-    $r8 <- load_const(5)
-    $r6 <- mk_monetary($r7, $r8)
-    $r9 <- get_amount($r6)
+    $r6 <- load_const("USD/2")
+    $r7 <- load_const(5)
+    $r8 <- mk_monetary($r6, $r7)
+    $r9 <- get_amount($r8)
     $r10 <- pull_account(account: $r5, cap: $r4, overdraft: $r9)
     check_enough_funds($r10, $r4)
     $r11 <- load_const("dest")
@@ -762,10 +804,10 @@ let%expect_test "bounded overdraft (uncapped)" =
     $r0 <- load_const("USD/2")
     set_current_asset($r0)
     $r1 <- load_const("src")
-    $r3 <- load_const("USD/2")
-    $r4 <- load_const(5)
-    $r2 <- mk_monetary($r3, $r4)
-    $r5 <- get_amount($r2)
+    $r2 <- load_const("USD/2")
+    $r3 <- load_const(5)
+    $r4 <- mk_monetary($r2, $r3)
+    $r5 <- get_amount($r4)
     $r6 <- pull_account(account: $r1, overdraft: $r5)
     $r7 <- load_const("dest")
     send_to_account_uncapped($r7)
@@ -785,28 +827,30 @@ let%expect_test "allotment src" =
   |};
   [%expect
     {|
-    $r1 <- load_const("USD/2")
-    $r2 <- load_const(10)
-    $r0 <- mk_monetary($r1, $r2)
-    $r3 <- get_asset($r0)
+    $r0 <- load_const("USD/2")
+    $r1 <- load_const(10)
+    $r2 <- mk_monetary($r0, $r1)
+    $r3 <- get_asset($r2)
     set_current_asset($r3)
-    $r4 <- get_amount($r0)
+    $r4 <- get_amount($r2)
     $r7 <- load_const(1)
     $r8 <- load_const(3)
-    $r5 <- mk_portion($r7, $r8)
-    $r9 <- load_const(2)
-    $r10 <- load_const(3)
-    $r6 <- mk_portion($r9, $r10)
-    $r11..$r12 <- mk_allot($r4, $r5..$r6)
-    $r13 <- load_const("s1")
-    $r14 <- pull_account(account: $r13, cap: $r11)
-    check_enough_funds($r14, $r11)
-    $r15 <- load_const("s2")
-    $r16 <- pull_account(account: $r15, cap: $r12)
-    check_enough_funds($r16, $r12)
+    $r9 <- mk_portion($r7, $r8)
+    $r5 <- portion_copy($r9)
+    $r10 <- load_const(2)
+    $r11 <- load_const(3)
+    $r12 <- mk_portion($r10, $r11)
+    $r6 <- portion_copy($r12)
+    $r13..$r14 <- mk_allot($r4, $r5..$r6)
+    $r15 <- load_const("s1")
+    $r16 <- pull_account(account: $r15, cap: $r13)
+    check_enough_funds($r16, $r13)
+    $r17 <- load_const("s2")
+    $r18 <- pull_account(account: $r17, cap: $r14)
+    check_enough_funds($r18, $r14)
     check_enough_funds($r4, $r4)
-    $r17 <- load_const("dest")
-    send_to_account_uncapped($r17)
+    $r19 <- load_const("dest")
+    send_to_account_uncapped($r19)
     |}]
 ;;
 
@@ -823,25 +867,53 @@ let%expect_test "allotment dest" =
   |};
   [%expect
     {|
-    $r1 <- load_const("USD/2")
-    $r2 <- load_const(10)
-    $r0 <- mk_monetary($r1, $r2)
-    $r3 <- get_asset($r0)
+    $r0 <- load_const("USD/2")
+    $r1 <- load_const(10)
+    $r2 <- mk_monetary($r0, $r1)
+    $r3 <- get_asset($r2)
     set_current_asset($r3)
-    $r4 <- get_amount($r0)
+    $r4 <- get_amount($r2)
     $r5 <- load_const("src")
     $r6 <- pull_account(account: $r5, cap: $r4)
     check_enough_funds($r6, $r4)
     $r9 <- load_const(1)
     $r10 <- load_const(4)
-    $r7 <- mk_portion($r9, $r10)
-    $r11 <- load_const(3)
-    $r12 <- load_const(4)
-    $r8 <- mk_portion($r11, $r12)
-    $r13..$r14 <- mk_allot($r6, $r7..$r8)
-    $r15 <- load_const("d1")
-    send_to_account_capped($r15, $r13)
-    $r16 <- load_const("d2")
-    send_to_account_capped($r16, $r14)
+    $r11 <- mk_portion($r9, $r10)
+    $r7 <- portion_copy($r11)
+    $r12 <- load_const(3)
+    $r13 <- load_const(4)
+    $r14 <- mk_portion($r12, $r13)
+    $r8 <- portion_copy($r14)
+    $r15..$r16 <- mk_allot($r6, $r7..$r8)
+    $r17 <- load_const("d1")
+    send_to_account_capped($r17, $r15)
+    $r18 <- load_const("d2")
+    send_to_account_capped($r18, $r16)
+    |}]
+;;
+
+let%expect_test "internal vars" =
+  test_compiled
+    {|
+    vars { account $acc = @acc }
+
+    send [USD/2 10] (
+      source = $acc
+      destination = @dest
+    )
+  |};
+  [%expect
+    {|
+    $r0 <- load_const("acc")
+    $r1 <- load_const("USD/2")
+    $r2 <- load_const(10)
+    $r3 <- mk_monetary($r1, $r2)
+    $r4 <- get_asset($r3)
+    set_current_asset($r4)
+    $r5 <- get_amount($r3)
+    $r6 <- pull_account(account: $r0, cap: $r5)
+    check_enough_funds($r6, $r5)
+    $r7 <- load_const("dest")
+    send_to_account_uncapped($r7)
     |}]
 ;;

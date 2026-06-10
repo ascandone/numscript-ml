@@ -154,6 +154,9 @@ let run_raise ~vars:_ ~balances vm =
     | UnaryOp { op = `int_copy; dest; arg } ->
       let n = read_int vm.regs.(arg) in
       vm.regs.(dest) <- Value_Int n
+    | UnaryOp { op = `portion_copy; dest; arg } ->
+      let n = read_portion vm.regs.(arg) in
+      vm.regs.(dest) <- Value_Portion n
     | UnaryOp { op = `get_amount; dest; arg } ->
       let _, amount = read_monetary vm.regs.(arg) in
       vm.regs.(dest) <- Value_Int amount

@@ -18,6 +18,7 @@ type run_error =
 type compilation_err =
   | UncappedUnboundedOverdraft
   | UncappedAllotment
+  | DuplicateVar of string
   | UnboundVar of string
   | InvalidType of string
   | InvalidFn of { fn_name : string }

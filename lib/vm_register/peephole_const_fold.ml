@@ -25,6 +25,12 @@ let get_int =
     | _ -> None)
 ;;
 
+let get_portion =
+  get_value ~reader:(function
+    | `Portion x -> Some x
+    | _ -> None)
+;;
+
 let get_monetary =
   get_value ~reader:(function
     | `Monetary x -> Some x
@@ -72,6 +78,11 @@ let eval (state : state) =
     let value = `Int n in
     Hashtbl.replace state dest value;
     Some (LoadConst { value; dest })
+  | UnaryOp { op = `portion_copy; arg; dest } ->
+    let* n = get_portion state arg in
+    let value = `Portion n in
+    Hashtbl.replace state dest value;
+    None
   | BinaryOp { op = `add_int; left; right; dest } ->
     let* left = get_int state left in
     let* right = get_int state right in

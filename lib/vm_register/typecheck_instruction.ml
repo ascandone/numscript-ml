@@ -80,6 +80,7 @@ let push_instruction state =
       | `get_amount -> monetary, int
       | `get_asset -> monetary, string
       | `int_copy -> int, int
+      | `portion_copy -> portion, portion
     in
     check_reg arg arg_typ;
     declare_reg dest dest_typ
