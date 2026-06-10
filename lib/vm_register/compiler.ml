@@ -9,6 +9,15 @@ let rec iter_result f = function
     iter_result f tl
 ;;
 
+let rec map_result f = function
+  | [] -> Ok []
+  | hd :: tl ->
+    let ( let* ) = Result.bind in
+    let* hd = f hd in
+    let* tl = map_result f tl in
+    Ok (hd :: tl)
+;;
+
 type ctx =
   { instructions : Virtual_instruction.t Dynarray.t
   ; next_reg : int ref
@@ -216,23 +225,13 @@ let rec compile_source ~cap_reg ctx (source : Ast.source) =
     in
     compile_source ~cap_reg:(Some cap_reg) ctx sub_src
   | Ast.SrcAllotment clauses, Some cap_reg ->
-    (* First, we compile portions so that we can create the allotment array (using mk_allotment).
-      No subsources yet! *)
-    let portions_arr =
-      (*
-      We MUST make sure we get contiguous registers before we compile por exprs
-      Interleaving those compilations would result in portions not being contiguous
-      *)
-      List.map (fun (por, _) -> por, get_fresh_dest ctx) clauses
-    in
-    let* () =
-      iter_result
-        (fun (por, por_reg) ->
+    let* portions_arr =
+      map_result
+        (fun (por, _) ->
            match por with
            | None -> failwith "[TODO] remaining clause in allot"
-           | Some por_expr ->
-             compile_expr_to ~copy:`portion_copy ~dest:por_reg ctx por_expr)
-        portions_arr
+           | Some por_expr -> compile_expr ctx por_expr)
+        clauses
     in
     let allots_regs =
       List.map (fun (_por, sub_src) -> sub_src, get_fresh_dest ctx) clauses
@@ -240,10 +239,7 @@ let rec compile_source ~cap_reg ctx (source : Ast.source) =
     push_instruction
       ctx
       (Virtual_instruction.MkAllotment
-         { dest_arr = List.map snd allots_regs
-         ; portions_arr = List.map snd portions_arr
-         ; amount = cap_reg
-         });
+         { dest_arr = List.map snd allots_regs; portions_arr; amount = cap_reg });
     (* Now that we know how much should each clause be capped with, we compile the sub-sources *)
     let* () =
       iter_result
@@ -298,15 +294,13 @@ let rec compile_dest ~pulled_amt_reg ~current_cap ctx =
     compile_kept_or_dest ~pulled_amt_reg ~current_cap ctx remaining
   | Ast.DestAllotment clauses ->
     (* -- dedup this part from src *)
-    let portions_arr = List.map (fun (por, _) -> por, get_fresh_dest ctx) clauses in
-    let* () =
-      iter_result
-        (fun (por, por_reg) ->
+    let* portions_arr =
+      map_result
+        (fun (por, _) ->
            match por with
            | None -> failwith "[TODO] remaining clause in allot"
-           | Some por_expr ->
-             compile_expr_to ~copy:`portion_copy ~dest:por_reg ctx por_expr)
-        portions_arr
+           | Some por_expr -> compile_expr ctx por_expr)
+        clauses
     in
     let allots_regs =
       List.map (fun (_por, sub_src) -> sub_src, get_fresh_dest ctx) clauses
@@ -314,10 +308,7 @@ let rec compile_dest ~pulled_amt_reg ~current_cap ctx =
     push_instruction
       ctx
       (Virtual_instruction.MkAllotment
-         { dest_arr = List.map snd allots_regs
-         ; portions_arr = List.map snd portions_arr
-         ; amount = current_cap
-         });
+         { dest_arr = List.map snd allots_regs; portions_arr; amount = current_cap });
     (* -- end dedup *)
     let* () =
       iter_result
@@ -845,24 +836,22 @@ let%expect_test "allotment src" =
     $r3 <- get_asset($r2)
     set_current_asset($r3)
     $r4 <- get_amount($r2)
-    $r7 <- load_const(1)
-    $r8 <- load_const(3)
-    $r9 <- mk_portion($r7, $r8)
-    $r5 <- portion_copy($r9)
-    $r10 <- load_const(2)
-    $r11 <- load_const(3)
-    $r12 <- mk_portion($r10, $r11)
-    $r6 <- portion_copy($r12)
-    [$r13, $r14] <- mk_allot($r4, [$r5, $r6])
-    $r15 <- load_const("s1")
-    $r16 <- pull_account(account: $r15, cap: $r13)
-    check_enough_funds($r16, $r13)
-    $r17 <- load_const("s2")
-    $r18 <- pull_account(account: $r17, cap: $r14)
-    check_enough_funds($r18, $r14)
+    $r5 <- load_const(1)
+    $r6 <- load_const(3)
+    $r7 <- mk_portion($r5, $r6)
+    $r8 <- load_const(2)
+    $r9 <- load_const(3)
+    $r10 <- mk_portion($r8, $r9)
+    [$r11, $r12] <- mk_allot($r4, [$r7, $r10])
+    $r13 <- load_const("s1")
+    $r14 <- pull_account(account: $r13, cap: $r11)
+    check_enough_funds($r14, $r11)
+    $r15 <- load_const("s2")
+    $r16 <- pull_account(account: $r15, cap: $r12)
+    check_enough_funds($r16, $r12)
     check_enough_funds($r4, $r4)
-    $r19 <- load_const("dest")
-    send_to_account($r19)
+    $r17 <- load_const("dest")
+    send_to_account($r17)
     |}]
 ;;
 
@@ -888,19 +877,17 @@ let%expect_test "allotment dest" =
     $r5 <- load_const("src")
     $r6 <- pull_account(account: $r5, cap: $r4)
     check_enough_funds($r6, $r4)
-    $r9 <- load_const(1)
-    $r10 <- load_const(4)
-    $r11 <- mk_portion($r9, $r10)
-    $r7 <- portion_copy($r11)
-    $r12 <- load_const(3)
-    $r13 <- load_const(4)
-    $r14 <- mk_portion($r12, $r13)
-    $r8 <- portion_copy($r14)
-    [$r15, $r16] <- mk_allot($r6, [$r7, $r8])
-    $r17 <- load_const("d1")
-    send_to_account($r17, cap: $r15)
-    $r18 <- load_const("d2")
-    send_to_account($r18, cap: $r16)
+    $r7 <- load_const(1)
+    $r8 <- load_const(4)
+    $r9 <- mk_portion($r7, $r8)
+    $r10 <- load_const(3)
+    $r11 <- load_const(4)
+    $r12 <- mk_portion($r10, $r11)
+    [$r13, $r14] <- mk_allot($r6, [$r9, $r12])
+    $r15 <- load_const("d1")
+    send_to_account($r15, cap: $r13)
+    $r16 <- load_const("d2")
+    send_to_account($r16, cap: $r14)
     |}]
 ;;
 
