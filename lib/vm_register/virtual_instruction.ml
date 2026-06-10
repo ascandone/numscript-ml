@@ -35,6 +35,11 @@ let pp_const_value fmt = function
 
 type t =
   | SetCurrentAsset of { asset : reg }
+  | FetchVariable of
+      { dest : reg
+      ; typ : Common.expr_typ
+      ; name : string
+      }
   | CheckEnoughFunds of
       { got : reg
       ; needed : reg
@@ -81,6 +86,9 @@ type t =
       }
 
 let pp fmt = function
+  | FetchVariable { typ; name } ->
+    let typ = Reg_type.of_expr_typ typ in
+    Format.fprintf fmt "fetch_var<%a>(%s)" Reg_type.pp typ name
   | CheckEnoughFunds { got; needed } ->
     Format.fprintf fmt "check_enough_funds(%a, %a)" pp_reg got pp_reg needed
   | SetCurrentAsset { asset } -> Format.fprintf fmt "set_current_asset(%a)" pp_reg asset

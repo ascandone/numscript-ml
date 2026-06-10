@@ -43,6 +43,7 @@ let get_dest =
   let open Virtual_instruction in
   function
   | MkAllotment _ -> failwith "[TODO] mkAllot"
+  | FetchVariable _ -> failwith "[TODO] fetchVar"
   | LoadConst { dest; _ }
   | UnaryOp { dest; _ }
   | BinaryOp { dest; _ }
@@ -56,6 +57,7 @@ let eval (state : state) =
   let open Virtual_instruction in
   let ( let* ) = Option.bind in
   function
+  | FetchVariable _ -> failwith "[TODO] fetchVar"
   | Label _ ->
     (* Conservative logic, we can be more precise *)
     Hashtbl.clear state;

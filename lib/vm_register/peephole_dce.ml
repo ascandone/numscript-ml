@@ -7,6 +7,7 @@ let get_used_args =
   let open Virtual_instruction in
   function
   | MkAllotment _ -> failwith "[TODO] mkallot"
+  | FetchVariable _ -> failwith "[TODO] fetchVar"
   | LoadConst _ | Label _ -> []
   | BinaryOp { left; right } -> [ left; right ]
   | UnaryOp { arg; _ } -> [ arg ]
@@ -23,6 +24,7 @@ let is_instruction_useful used_regs =
   let open Virtual_instruction in
   function
   | MkAllotment _ -> failwith "[TODO] mkallot"
+  | FetchVariable _ -> failwith "[TODO] fetchVar"
   | Label _
   | SendToAccount _
   | JmpIfZero _

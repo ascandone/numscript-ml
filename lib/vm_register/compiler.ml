@@ -366,18 +366,27 @@ let compile_stmt ctx =
 
 let compile_var_def ctx (var_ : Ast.var) =
   let ( let* ) = Result.bind in
+  let* typ =
+    Common.parse_typ var_.typ |> Option.to_result ~none:(Common.InvalidType var_.typ)
+  in
   (* check var is not shadowing another one *)
   let* () =
     match Hashtbl.find_opt ctx.vars var_.name with
     | None -> Ok ()
     | Some _previous_lookup -> Error (Common.DuplicateVar var_.name)
   in
-  match var_.value with
-  | None -> failwith "[TODO] external var"
-  | Some var_def ->
-    let* var_reg = compile_expr ctx var_def in
-    Hashtbl.replace ctx.vars var_.name var_reg;
-    Ok ()
+  let* dest =
+    match var_.value with
+    | Some var_def -> compile_expr ctx var_def
+    | None ->
+      let dest =
+        push_instruction_dest ctx (fun dest ->
+          Virtual_instruction.FetchVariable { dest; typ; name = var_.name })
+      in
+      Ok dest
+  in
+  Hashtbl.replace ctx.vars var_.name dest;
+  Ok ()
 ;;
 
 let compile_parsed (program : Ast.program) =
@@ -905,6 +914,32 @@ let%expect_test "internal vars" =
   [%expect
     {|
     $r0 <- load_const("acc")
+    $r1 <- load_const("USD/2")
+    $r2 <- load_const(10)
+    $r3 <- mk_monetary($r1, $r2)
+    $r4 <- get_asset($r3)
+    set_current_asset($r4)
+    $r5 <- get_amount($r3)
+    $r6 <- pull_account(account: $r0, cap: $r5)
+    check_enough_funds($r6, $r5)
+    $r7 <- load_const("dest")
+    send_to_account_uncapped($r7)
+    |}]
+;;
+
+let%expect_test "extern vars" =
+  test_compiled
+    {|
+    vars { account $acc }
+
+    send [USD/2 10] (
+      source = $acc
+      destination = @dest
+    )
+  |};
+  [%expect
+    {|
+    fetch_var<string>(acc)
     $r1 <- load_const("USD/2")
     $r2 <- load_const(10)
     $r3 <- mk_monetary($r1, $r2)

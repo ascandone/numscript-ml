@@ -24,6 +24,9 @@ let push_instruction state =
   let check_reg = check_reg_ state in
   let declare_reg = declare_reg_ state in
   function
+  | Virtual_instruction.FetchVariable { dest; typ; name = _ } ->
+    let typ = Reg_type.of_expr_typ typ in
+    declare_reg dest typ
   | Virtual_instruction.LoadConst { value; dest } ->
     let typ =
       match value with

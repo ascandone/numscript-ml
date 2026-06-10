@@ -68,13 +68,32 @@ exception RunError of run_error
 
 let world_account = "world"
 
-let run_raise ~vars:_ ~balances vm =
+let parse_var ~typ ~raw_string =
+  match typ with
+  | Common.ExprTyp_Account | Common.ExprTyp_Asset | Common.ExprTyp_String ->
+    Value_String raw_string
+  | Common.ExprTyp_Number -> Value_Int (Int64.of_string raw_string)
+  | Common.ExprTyp_Monetary ->
+    (match String.split_on_char ' ' raw_string with
+     | [ asset; amt ] -> Value_Monetary (asset, Int64.of_string amt)
+     | _ -> failwith "Error: invalid monetary lit")
+  | Common.ExprTyp_Portion -> failwith "TODO parse portion"
+;;
+
+let run_raise ~vars ~balances vm =
   Run_state.set_balances vm.run_state balances;
   let pc = ref 0 in
   while !pc < Array.length vm.instructions do
     let instruction = vm.instructions.(!pc) in
     incr pc;
     match instruction with
+    | FetchVariable { dest; name; typ } ->
+      let raw_string =
+        match Run_state.StringMap.find_opt name vars with
+        | None -> raise (RunError (UnboundVar name))
+        | Some value -> value
+      in
+      vm.regs.(dest) <- parse_var ~typ ~raw_string
     | CheckEnoughFunds { got; needed } ->
       let got = read_int vm.regs.(got) in
       let needed = read_int vm.regs.(needed) in

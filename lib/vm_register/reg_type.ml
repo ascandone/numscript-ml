@@ -7,3 +7,10 @@ let int = Reg "int"
 let monetary = Reg "monetary"
 let string = Reg "string"
 let portion = Reg "portion"
+
+let of_expr_typ = function
+  | Common.ExprTyp_Account | Common.ExprTyp_Asset | Common.ExprTyp_String -> string
+  | Common.ExprTyp_Monetary -> monetary
+  | Common.ExprTyp_Number -> int
+  | Common.ExprTyp_Portion -> portion
+;;
