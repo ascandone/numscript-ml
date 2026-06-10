@@ -128,16 +128,15 @@ let run_stmt (ctx : Run_state.run_state) = function
 
 let parse_var ~typ ~raw_value =
   match typ with
-  | "account" -> Value.Asset raw_value
-  | "asset" -> Value.Asset raw_value
-  | "string" -> Value.String raw_value
-  | "number" -> Value.Int (Int64.of_string raw_value)
-  | "monetary" ->
+  | ExprTyp_Account -> Value.Asset raw_value
+  | ExprTyp_Asset -> Value.Asset raw_value
+  | ExprTyp_String -> Value.String raw_value
+  | ExprTyp_Number -> Value.Int (Int64.of_string raw_value)
+  | ExprTyp_Monetary ->
     (match String.split_on_char ' ' raw_value with
      | [ asset; amt ] -> Value.Monetary (asset, Int64.of_string amt)
      | _ -> failwith "Error: invalid monetary lit")
-  | "portion" -> failwith "TODO parse portion"
-  | _ -> failwith "Error: unimplemented typ"
+  | ExprTyp_Portion -> failwith "TODO parse portion"
 ;;
 
 let run_program ~vars ~balances (program : Syntax.Ast.program) =
@@ -148,12 +147,17 @@ let run_program ~vars ~balances (program : Syntax.Ast.program) =
   in
   List.iter
     (fun (v : Syntax.Ast.var) ->
+       let typ =
+         match parse_typ v.typ with
+         | None -> failwith "Err: missing variable"
+         | Some t -> t
+       in
        let value =
          match v.value with
          | None ->
            (match Run_state.StringMap.find_opt v.name vars with
             | None -> failwith "Err: missing variable"
-            | Some raw_value -> parse_var ~typ:v.typ ~raw_value)
+            | Some raw_value -> parse_var ~typ ~raw_value)
          | Some e -> Eval_ast.eval_expr eval_ctx e
        in
        Hashtbl.add eval_ctx.vars v.name value)
