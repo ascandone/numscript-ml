@@ -17,3 +17,4 @@ val pull_uncapped : ?overdraft_bound:int64 -> source:string -> run_state -> int6
 (* destination *)
 val send : dest:string -> cap:int64 -> run_state -> unit
 val send_uncapped : dest:string -> run_state -> unit
+val get_postings : run_state -> Common_intf.posting list

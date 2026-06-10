@@ -58,5 +58,5 @@ let run vm =
       let amount = vm.regs.ints.(amount) in
       if Int64.equal Int64.zero amount then pc := !pc + delta
   done;
-  vm.run_state.postings |> Queue.to_seq |> List.of_seq
+  Run_state.get_postings vm.run_state
 ;;

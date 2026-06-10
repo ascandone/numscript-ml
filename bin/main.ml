@@ -275,7 +275,7 @@ let run_specs_file specs_file_path any_failed =
          then Printf.printf "PASS %s\n" tc.it
          else (
            any_failed := true;
-           Printf.printf "FAIL %s\n" tc.it;
+           Printf.printf "FAIL %s: %s\n" specs_file_path tc.it;
            List.iter (fun msg -> Printf.printf "  %s\n" msg) failures)))
     specs.test_cases
 ;;

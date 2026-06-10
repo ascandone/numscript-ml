@@ -266,7 +266,7 @@ let run_compiled ~vars ~balances (program : Program.t) =
   Run_state.set_balances run_ctx.run_state balances;
   match program.statements |> Array.iter (eval_statement run_ctx) with
   | exception RunError e -> Error e
-  | () -> Ok (run_ctx.run_state.postings |> Queue.to_seq |> List.of_seq)
+  | () -> Ok (Run_state.get_postings run_ctx.run_state)
 ;;
 
 let run_program ~vars ~balances program =

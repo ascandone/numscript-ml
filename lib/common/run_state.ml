@@ -3,7 +3,7 @@ include Run_state_intf
 let create () =
   { balances = Hashtbl.create 0
   ; sources = Dynarray.create ()
-  ; postings = Queue.create ()
+  ; postings = Dynarray.create ()
   ; current_asset = ref ""
   }
 ;;
@@ -40,10 +40,6 @@ let pull ?(overdraft_bound = Some 0L) ~source ~cap ctx =
   available_amount_to_pull
 ;;
 
-(** 
-Pulls all of the source's balance
-Can't be unbounded overdraft
-*)
 let pull_uncapped ?(overdraft_bound = 0L) ~source ctx =
   let current_bal = get_account_balance ctx source in
   let available = Int64.max 0L (Int64.add current_bal overdraft_bound) in
@@ -73,6 +69,38 @@ let add_left (da : 'a Dynarray.t) (x : 'a) : unit =
   List.iter (Dynarray.add_last da) temp
 ;;
 
+(* Append a posting, merging with the previous one when source, destination,
+   and asset all match. Also updates destination balance. *)
+let add_posting ctx ~source ~destination ~asset ~amount =
+  if amount <= 0L
+  then ()
+  else (
+    let n = Dynarray.length ctx.postings in
+    let merged =
+      if n = 0
+      then false
+      else (
+        let last = Dynarray.get ctx.postings (n - 1) in
+        if
+          String.equal last.Common_intf.source source
+          && String.equal last.Common_intf.destination destination
+          && String.equal last.Common_intf.asset asset
+        then (
+          Dynarray.set
+            ctx.postings
+            (n - 1)
+            { last with Common_intf.amount = Int64.add last.amount amount };
+          true)
+        else false)
+    in
+    if not merged
+    then Dynarray.add_last ctx.postings { Common_intf.source; destination; amount; asset };
+    let dst_bal =
+      Hashtbl.find_opt ctx.balances (destination, asset) |> Option.value ~default:0L
+    in
+    Hashtbl.replace ctx.balances (destination, asset) (Int64.add dst_bal amount))
+;;
+
 let rec send ~dest:destination ~cap ctx =
   if cap <= 0L
   then ()
@@ -80,28 +108,14 @@ let rec send ~dest:destination ~cap ctx =
     match pop_first_opt ctx.sources with
     | None -> ()
     | Some (source, avl_amt) ->
-      let add amount =
-        if amount > 0L
-        then (
-          Queue.add
-            { Common_intf.source; destination; amount; asset = !(ctx.current_asset) }
-            ctx.postings;
-          let dst_bal =
-            Hashtbl.find_opt ctx.balances (destination, !(ctx.current_asset))
-            |> Option.value ~default:0L
-          in
-          Hashtbl.replace
-            ctx.balances
-            (destination, !(ctx.current_asset))
-            (Int64.add dst_bal amount))
-      in
+      let asset = !(ctx.current_asset) in
       if avl_amt >= cap
       then (
-        add cap;
+        add_posting ctx ~source ~destination ~asset ~amount:cap;
         let diff = Int64.sub avl_amt cap in
         if diff > 0L then add_left ctx.sources (source, diff))
       else (
-        add avl_amt;
+        add_posting ctx ~source ~destination ~asset ~amount:avl_amt;
         send ctx ~dest:destination ~cap:(Int64.sub cap avl_amt)))
 ;;
 
@@ -110,21 +124,8 @@ let rec send_uncapped ~dest:destination ctx =
   | None -> ()
   | Some (source, avl_amt) ->
     if avl_amt > 0L
-    then (
-      Queue.add
-        { Common_intf.source
-        ; destination
-        ; amount = avl_amt
-        ; asset = !(ctx.current_asset)
-        }
-        ctx.postings;
-      let dst_bal =
-        Hashtbl.find_opt ctx.balances (destination, !(ctx.current_asset))
-        |> Option.value ~default:0L
-      in
-      Hashtbl.replace
-        ctx.balances
-        (destination, !(ctx.current_asset))
-        (Int64.add dst_bal avl_amt));
+    then add_posting ctx ~source ~destination ~asset:!(ctx.current_asset) ~amount:avl_amt;
     send_uncapped ~dest:destination ctx
 ;;
+
+let get_postings ctx = Dynarray.to_list ctx.postings

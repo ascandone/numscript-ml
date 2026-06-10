@@ -15,6 +15,6 @@ module PairsMap = Map.Make (StringPair)
 type run_state =
   { mutable balances : (string * string, int64) Hashtbl.t
   ; sources : (string * int64) Dynarray.t
-  ; postings : Common_intf.posting Queue.t
+  ; postings : Common_intf.posting Dynarray.t
   ; current_asset : string ref
   }

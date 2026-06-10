@@ -210,5 +210,5 @@ let run_program ~vars ~balances (program : Syntax.Ast.program) =
     |> List.iter (run_stmt run_ctx)
   with
   | exception RunError e -> Error (`Runtime e)
-  | () -> Ok (run_ctx.postings |> Queue.to_seq |> List.of_seq)
+  | () -> Ok (Run_state.get_postings run_ctx)
 ;;

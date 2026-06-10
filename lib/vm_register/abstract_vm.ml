@@ -186,7 +186,7 @@ let run_raise ~vars ~balances vm =
       let value = read_int vm.regs.(value) in
       if Int64.equal Int64.zero value then pc := Hashtbl.find vm.labels_indexes label
   done;
-  vm.run_state.postings |> Queue.to_seq |> List.of_seq
+  Run_state.get_postings vm.run_state
 ;;
 
 let run ~vars ~balances vm =
