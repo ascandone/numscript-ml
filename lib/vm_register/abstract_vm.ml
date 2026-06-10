@@ -100,17 +100,17 @@ let run_raise ~vars ~balances vm =
     | LoadConst { dest; value = `String str } -> vm.regs.(dest) <- Value_String str
     | Label _ -> ()
     | LoadConst { dest; value = `Int n } -> vm.regs.(dest) <- Value_Int n
-    | MkAllotment { dest_start; amount; portions_arr = por_start, por_len } ->
+    | MkAllotment { dest_arr; amount; portions_arr } ->
       let cap = read_int vm.regs.(amount) in
       let portions_array =
-        Array.init por_len (fun por_idx -> read_portion vm.regs.(por_start + por_idx))
+        portions_arr
+        |> List.map (fun por_reg -> read_portion vm.regs.(por_reg))
+        |> Array.of_list
       in
-      let allots = Common.calc_allot ~portions_array ~cap in
-      Array.iteri
-        (fun idx allot_amt ->
-           (* *)
-           vm.regs.(dest_start + idx) <- Value_Int allot_amt;
-           ())
+      let allots = Common.calc_allot ~portions_array ~cap |> Array.to_list in
+      List.iter2
+        (fun dest_reg allot_amt -> vm.regs.(dest_reg) <- Value_Int allot_amt)
+        dest_arr
         allots
     | PullAccount { dest; account; overdraft; cap } ->
       let account = read_string vm.regs.(account) in

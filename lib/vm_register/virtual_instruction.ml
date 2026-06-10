@@ -6,6 +6,11 @@ let pp_reg_arr fmt (reg, len) =
   Format.fprintf fmt "%a..%a" pp_reg reg pp_reg (reg + len - 1)
 ;;
 
+let pp_reg_list fmt regs =
+  let pp_sep fmt () = Format.pp_print_string fmt ", " in
+  Format.pp_print_list ~pp_sep pp_reg fmt regs
+;;
+
 type unary_op =
   [ `get_amount
   | `get_asset
@@ -56,9 +61,9 @@ type t =
       ; cap : reg
       }
   | MkAllotment of
-      { dest_start : reg
+      { dest_arr : reg list
       ; amount : reg
-      ; portions_arr : reg * int
+      ; portions_arr : reg list
       }
   | SendToAccount of
       { account : reg option
@@ -138,16 +143,16 @@ let pp fmt = function
       account
       pp_reg
       cap
-  | MkAllotment { dest_start; amount; portions_arr = portions_start, len } ->
+  | MkAllotment { dest_arr; amount; portions_arr } ->
     Format.fprintf
       fmt
-      "%a <- mk_allot(%a, %a)"
-      pp_reg_arr
-      (dest_start, len)
+      "[%a] <- mk_allot(%a, [%a])"
+      pp_reg_list
+      dest_arr
       pp_reg
       amount
-      pp_reg_arr
-      (portions_start, len)
+      pp_reg_list
+      portions_arr
   | Label label -> Format.fprintf fmt "#%s" label
   | JmpIfZero { value; label } ->
     Format.fprintf fmt "jmp_if_zero(%a, #%s)" pp_reg value label

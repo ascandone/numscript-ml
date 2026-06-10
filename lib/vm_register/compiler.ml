@@ -225,7 +225,6 @@ let rec compile_source ~cap_reg ctx (source : Ast.source) =
       *)
       List.map (fun (por, _) -> por, get_fresh_dest ctx) clauses
     in
-    let _, portions_arr_start_reg = List.hd portions_arr in
     let* () =
       iter_result
         (fun (por, por_reg) ->
@@ -238,12 +237,11 @@ let rec compile_source ~cap_reg ctx (source : Ast.source) =
     let allots_regs =
       List.map (fun (_por, sub_src) -> sub_src, get_fresh_dest ctx) clauses
     in
-    let _, dest_start = List.hd allots_regs in
     push_instruction
       ctx
       (Virtual_instruction.MkAllotment
-         { dest_start
-         ; portions_arr = portions_arr_start_reg, List.length portions_arr
+         { dest_arr = List.map snd allots_regs
+         ; portions_arr = List.map snd portions_arr
          ; amount = cap_reg
          });
     (* Now that we know how much should each clause be capped with, we compile the sub-sources *)
@@ -301,7 +299,6 @@ let rec compile_dest ~pulled_amt_reg ~current_cap ctx =
   | Ast.DestAllotment clauses ->
     (* -- dedup this part from src *)
     let portions_arr = List.map (fun (por, _) -> por, get_fresh_dest ctx) clauses in
-    let _, portions_arr_start_reg = List.hd portions_arr in
     let* () =
       iter_result
         (fun (por, por_reg) ->
@@ -314,12 +311,11 @@ let rec compile_dest ~pulled_amt_reg ~current_cap ctx =
     let allots_regs =
       List.map (fun (_por, sub_src) -> sub_src, get_fresh_dest ctx) clauses
     in
-    let _, dest_start = List.hd allots_regs in
     push_instruction
       ctx
       (Virtual_instruction.MkAllotment
-         { dest_start
-         ; portions_arr = portions_arr_start_reg, List.length portions_arr
+         { dest_arr = List.map snd allots_regs
+         ; portions_arr = List.map snd portions_arr
          ; amount = current_cap
          });
     (* -- end dedup *)
@@ -857,7 +853,7 @@ let%expect_test "allotment src" =
     $r11 <- load_const(3)
     $r12 <- mk_portion($r10, $r11)
     $r6 <- portion_copy($r12)
-    $r13..$r14 <- mk_allot($r4, $r5..$r6)
+    [$r13, $r14] <- mk_allot($r4, [$r5, $r6])
     $r15 <- load_const("s1")
     $r16 <- pull_account(account: $r15, cap: $r13)
     check_enough_funds($r16, $r13)
@@ -900,7 +896,7 @@ let%expect_test "allotment dest" =
     $r13 <- load_const(4)
     $r14 <- mk_portion($r12, $r13)
     $r8 <- portion_copy($r14)
-    $r15..$r16 <- mk_allot($r6, $r7..$r8)
+    [$r15, $r16] <- mk_allot($r6, [$r7, $r8])
     $r17 <- load_const("d1")
     send_to_account($r17, cap: $r15)
     $r18 <- load_const("d2")
