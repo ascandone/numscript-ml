@@ -97,6 +97,12 @@ let eval (state : state) =
     let value = `Int (Int64.sub left right) in
     Hashtbl.replace state dest value;
     Some (LoadConst { value; dest })
+  | BinaryOp { op = `sub_portion; left; right; dest } ->
+    let* left = get_portion state left in
+    let* right = get_portion state right in
+    let value = `Portion (Portion.sub left right) in
+    Hashtbl.replace state dest value;
+    None
   | BinaryOp { op = `min_int; left; right; dest } ->
     let* left = get_int state left in
     let* right = get_int state right in

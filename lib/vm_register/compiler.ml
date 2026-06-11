@@ -108,14 +108,41 @@ and compile_expr_to ~dest ~(copy : [> `int_copy | `portion_copy ]) ctx expr =
 
 let compile_allot ~cap_reg ctx clauses =
   let ( let* ) = Result.bind in
+  let remaining_reg = ref None in
   let* portions_arr =
     map_result
       (fun (por, _) ->
          match por with
-         | None -> failwith "[TODO] remaining clause in allot"
+         | None when Option.is_some !remaining_reg -> Error Common.DuplicateRemaining
+         | None ->
+           let one =
+             push_instruction_dest ctx (fun dest ->
+               Virtual_instruction.LoadConst { value = `Int 1L; dest })
+           in
+           let reg =
+             push_instruction_dest ctx (fun dest ->
+               Virtual_instruction.BinaryOp
+                 { op = `mk_portion; left = one; right = one; dest })
+           in
+           remaining_reg := Some reg;
+           Ok reg
          | Some por_expr -> compile_expr ctx por_expr)
       clauses
   in
+  (* Now we compile the "remaining" as `1 - $p1 - .. - $pn` *)
+  (match !remaining_reg with
+   | None -> ()
+   | Some tot_reg ->
+     List.iter
+       (function
+         | por_reg when por_reg = tot_reg -> ()
+         | por_reg ->
+           push_instruction
+             ctx
+             (Virtual_instruction.BinaryOp
+                { dest = tot_reg; op = `sub_portion; left = tot_reg; right = por_reg });
+           ())
+       portions_arr);
   let allots_regs =
     List.map (fun (_por, sub_src) -> sub_src, get_fresh_dest ctx) clauses
   in
@@ -836,6 +863,52 @@ let%expect_test "allotment src" =
     check_enough_funds($r4, $r4)
     $r17 <- load_const("dest")
     send_to_account($r17)
+    |}]
+;;
+
+let%expect_test "allotment with remaining" =
+  test_compiled
+    {|
+    send [USD/2 10] (
+      source = {
+        1/4 from @s1
+        2/4 from @s2
+        remaining from @s3
+      }
+      destination = @dest
+    )
+  |};
+  [%expect
+    {|
+    $r0 <- load_const("USD/2")
+    $r1 <- load_const(10)
+    $r2 <- mk_monetary($r0, $r1)
+    $r3 <- get_asset($r2)
+    set_current_asset($r3)
+    $r4 <- get_amount($r2)
+    $r5 <- load_const(1)
+    $r6 <- load_const(4)
+    $r7 <- mk_portion($r5, $r6)
+    $r8 <- load_const(2)
+    $r9 <- load_const(4)
+    $r10 <- mk_portion($r8, $r9)
+    $r11 <- load_const(1)
+    $r12 <- mk_portion($r11, $r11)
+    $r12 <- sub_portion($r12, $r7)
+    $r12 <- sub_portion($r12, $r10)
+    [$r13, $r14, $r15] <- mk_allot($r4, [$r7, $r10, $r12])
+    $r16 <- load_const("s1")
+    $r17 <- pull_account(account: $r16, cap: $r13)
+    check_enough_funds($r17, $r13)
+    $r18 <- load_const("s2")
+    $r19 <- pull_account(account: $r18, cap: $r14)
+    check_enough_funds($r19, $r14)
+    $r20 <- load_const("s3")
+    $r21 <- pull_account(account: $r20, cap: $r15)
+    check_enough_funds($r21, $r15)
+    check_enough_funds($r4, $r4)
+    $r22 <- load_const("dest")
+    send_to_account($r22)
     |}]
 ;;
 

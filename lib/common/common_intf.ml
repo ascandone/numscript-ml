@@ -22,6 +22,7 @@ type run_error =
 type compilation_err =
   | UncappedUnboundedOverdraft
   | UncappedAllotment
+  | DuplicateRemaining
   | DuplicateVar of string
   | UnboundVar of string
   | InvalidType of string

@@ -23,6 +23,7 @@ type binary_op =
   [ `min_int
   | `add_int
   | `sub_int
+  | `sub_portion
   | `mk_portion
   | `mk_monetary
   ]

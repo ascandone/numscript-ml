@@ -65,6 +65,7 @@ let push_instruction state =
       let open Reg_type in
       match op with
       | `add_int | `sub_int | `min_int -> int, int, int
+      | `sub_portion -> portion, portion, portion
       | `mk_monetary -> string, int, monetary
       | `mk_portion -> int, int, portion
     in
