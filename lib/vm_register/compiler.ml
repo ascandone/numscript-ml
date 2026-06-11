@@ -88,7 +88,20 @@ let rec compile_expr ctx =
       | Ast.Div -> `mk_portion
     in
     compile_infix ~op ctx left right
-  | Ast.ExprPerc _ -> failwith "[TODO] perc"
+  | Ast.ExprPerc num ->
+    let num =
+      push_instruction_dest ctx (fun dest ->
+        Virtual_instruction.LoadConst { value = `Int (Int64.of_int num); dest })
+    in
+    let c_100 =
+      push_instruction_dest ctx (fun dest ->
+        Virtual_instruction.LoadConst { value = `Int 100L; dest })
+    in
+    let dest =
+      push_instruction_dest ctx (fun dest ->
+        Virtual_instruction.BinaryOp { op = `mk_portion; left = num; right = c_100; dest })
+    in
+    Ok dest
   | Ast.ExprFnCall _ -> failwith "[TODO] fn call"
 
 and compile_infix ~(op : Virtual_instruction.binary_op) ctx left right =
