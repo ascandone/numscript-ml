@@ -22,6 +22,11 @@ let parse_var ~typ ~raw_value =
     (match String.split_on_char ' ' raw_value with
      | [ asset; amt ] -> Ok (`Monetary (asset, Int64.of_string amt))
      | _ -> Error `BadMonetary)
+  | ExprTyp_Portion when String.ends_with ~suffix:"%" raw_value ->
+    let num_raw = String.sub raw_value 0 (String.length raw_value - 1) in
+    (* TODO handle err *)
+    let i64 = Int64.of_string num_raw in
+    Ok (`Portion (Portion.create ~num:i64 ~den:100L))
   | ExprTyp_Portion -> failwith "TODO parse portion"
 ;;
 

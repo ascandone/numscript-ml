@@ -16,7 +16,7 @@ let rec eval_expr ctx =
   | Ast.ExprAsset name -> Value.Asset name
   | Ast.ExprString s -> Value.String s
   | Ast.ExprInt n -> Value.Int (Int64.of_int n)
-  | Ast.ExprPerc n -> Value.Portion (Int64.of_int n, Int64.of_int 100)
+  | Ast.ExprPerc n -> Value.Portion (Portion.create ~num:(Int64.of_int n) ~den:100L)
   | Ast.ExprMonetaryLit (mon, amt) ->
     let mon_val = Value.expect (eval_expr ctx mon) Value.expect_asset in
     let amt_val = Value.expect (eval_expr ctx amt) Value.expect_number in
@@ -30,9 +30,9 @@ let rec eval_expr ctx =
     let right_val = Value.expect (eval_expr ctx right) Value.expect_number in
     Int (Int64.add left_val right_val)
   | Ast.ExprInfix (Ast.Div, left, right) ->
-    let left_val = Value.expect (eval_expr ctx left) Value.expect_number in
-    let right_val = Value.expect (eval_expr ctx right) Value.expect_number in
-    Portion (left_val, right_val)
+    let num = Value.expect (eval_expr ctx left) Value.expect_number in
+    let den = Value.expect (eval_expr ctx right) Value.expect_number in
+    Portion (Portion.create ~num ~den)
   | Ast.ExprFnCall ("balance", [ acc_expr; asset_expr ]) ->
     let account = Value.expect (eval_expr ctx acc_expr) Value.expect_asset in
     let asset = Value.expect (eval_expr ctx asset_expr) Value.expect_asset in
@@ -44,43 +44,6 @@ let eval_overdraft_bound ctx expr =
   match eval_expr ctx expr with
   | Value.Monetary (_, amt) -> amt
   | _ -> failwith "overdraft bound must be a monetary or number"
-;;
-
-let resolve_allotment ctx allots eval_item =
-  let tagged =
-    List.map
-      (fun (e_opt, x) ->
-         let p =
-           match e_opt with
-           | Some e -> `Fixed (Value.expect (eval_expr ctx e) Value.expect_portion)
-           | None -> `Remaining
-         in
-         p, eval_item x)
-      allots
-  in
-  let fixed =
-    List.filter_map
-      (function
-        | `Fixed nd, _ -> Some nd
-        | _ -> None)
-      tagged
-  in
-  let lc = List.fold_left (fun acc (_, d) -> Internal_common.lcm acc d) 1L fixed in
-  let sum_fixed =
-    List.fold_left
-      (fun acc (n, d) -> Int64.add acc (Int64.mul n (Int64.div lc d)))
-      0L
-      fixed
-  in
-  List.map
-    (fun (p, x) ->
-       let portion =
-         match p with
-         | `Fixed (n, d) -> Ast_canonical.Portion (n, d)
-         | `Remaining -> Ast_canonical.Portion (Int64.sub lc sum_fixed, lc)
-       in
-       portion, x)
-    tagged
 ;;
 
 let rec eval_source ctx =
@@ -103,8 +66,7 @@ let rec eval_source ctx =
     let _asset, cap_val = Value.expect (eval_expr ctx cap) Value.expect_monetary in
     Ast_canonical.SrcMax (cap_val, eval_source ctx src)
   | Ast.SrcInorder srcs -> Ast_canonical.SrcInorder (List.map (eval_source ctx) srcs)
-  | Ast.SrcAllotment allots ->
-    Ast_canonical.SrcAllotment (resolve_allotment ctx allots (eval_source ctx))
+  | Ast.SrcAllotment _ -> failwith "[TODO] eval allot"
 ;;
 
 let rec eval_dest ctx =
@@ -121,8 +83,7 @@ let rec eval_dest ctx =
              { cap; dest = eval_kept_or_dest ctx clause.dest })
           dests
       , eval_kept_or_dest ctx rem )
-  | Ast.DestAllotment allots ->
-    Ast_canonical.DestAllotment (resolve_allotment ctx allots (eval_kept_or_dest ctx))
+  | Ast.DestAllotment allots -> failwith "[TODO] eval allot"
 
 and eval_kept_or_dest ctx =
   let open Syntax in

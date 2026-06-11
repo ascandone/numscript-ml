@@ -73,6 +73,7 @@ let alloc_var ~typ ~raw_value =
   | Ok (`String s) | Ok (`Asset s) | Ok (`Account s) -> Value_String s
   | Ok (`Int n) -> Value_Int n
   | Ok (`Monetary (asset, amt)) -> Value_Monetary (asset, amt)
+  | Ok (`Portion p) -> Value_Portion p
   | Error `BadMonetary -> raise (RunError (BadVar { typ = `Monetary; raw_value }))
 ;;
 

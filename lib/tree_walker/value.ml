@@ -1,6 +1,6 @@
 type t =
   | Int of int64
-  | Portion of int64 * int64
+  | Portion of Portion.t
   | Asset of string
   | String of string
   | Account of string
@@ -32,7 +32,7 @@ let expect_monetary = function
 ;;
 
 let expect_portion = function
-  | Portion (num, den) -> Ok (num, den)
+  | Portion p -> Ok p
   | got -> Error { expected = "portion"; got }
 ;;
 

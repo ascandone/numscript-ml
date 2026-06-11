@@ -133,6 +133,7 @@ let alloc_var ~typ ~raw_value =
   | Ok (`String s) -> Value.String s
   | Ok (`Int n) -> Value.Int n
   | Ok (`Monetary (asset, amt)) -> Value.Monetary (asset, amt)
+  | Ok (`Portion p) -> Value.Portion p
   | Error `BadMonetary -> failwith "Err: bad monetary"
 ;;
 
