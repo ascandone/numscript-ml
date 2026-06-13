@@ -315,6 +315,10 @@ let rec compile_dest ~pulled_amt_reg ~current_cap ctx =
       (Virtual_instruction.SendToAccount { account = Some account; cap });
     Ok ()
   | Ast.DestInorder (clauses, remaining) ->
+    let remaining_reg =
+      push_instruction_dest ctx (fun dest ->
+        Virtual_instruction.UnaryOp { op = `int_copy; arg = pulled_amt_reg; dest })
+    in
     let* () =
       iter_result
         (fun ({ cap; dest } : Ast.dest_inorder_clause) ->
@@ -328,17 +332,26 @@ let rec compile_dest ~pulled_amt_reg ~current_cap ctx =
              push_instruction_dest ctx (fun dest ->
                Virtual_instruction.BinaryOp
                  { op = `min_int
-                 ; left = pulled_amt_reg
+                 ; left = remaining_reg
                  ; right = inner_pulled_amt_reg
                  ; dest
                  })
            in
-           compile_kept_or_dest ctx ~pulled_amt_reg ~current_cap dest)
+           let* () = compile_kept_or_dest ctx ~pulled_amt_reg ~current_cap dest in
+           push_instruction
+             ctx
+             (Virtual_instruction.BinaryOp
+                { op = `sub_int
+                ; dest = remaining_reg
+                ; left = remaining_reg
+                ; right = pulled_amt_reg
+                });
+           Ok ())
         clauses
     in
-    compile_kept_or_dest ~pulled_amt_reg ~current_cap ctx remaining
+    compile_kept_or_dest ~pulled_amt_reg:remaining_reg ~current_cap ctx remaining
   | Ast.DestAllotment clauses ->
-    let* allots_regs = compile_allot ctx ~cap_reg:current_cap clauses in
+    let* allots_regs = compile_allot ctx ~cap_reg:pulled_amt_reg clauses in
     iter_result
       (fun (subdest, pulled_amt_reg) ->
          let* _dest_reg = compile_kept_or_dest ~pulled_amt_reg ~current_cap ctx subdest in
@@ -681,8 +694,9 @@ let%expect_test "inorder dest remaining" =
     $r5 <- load_const("src")
     $r6 <- pull_account(account: $r5, cap: $r4)
     check_enough_funds($r6, $r4)
-    $r7 <- load_const("dest")
-    send_to_account($r7)
+    $r7 <- int_copy($r6)
+    $r8 <- load_const("dest")
+    send_to_account($r8, cap: $r7)
     |}]
 ;;
 
@@ -708,15 +722,17 @@ let%expect_test "inorder dest clauses" =
     $r5 <- load_const("src")
     $r6 <- pull_account(account: $r5, cap: $r4)
     check_enough_funds($r6, $r4)
-    $r7 <- load_const("USD/2")
-    $r8 <- load_const(5)
-    $r9 <- mk_monetary($r7, $r8)
-    $r10 <- get_amount($r9)
-    $r11 <- min_int($r6, $r10)
-    $r12 <- load_const("dest:capped")
-    send_to_account($r12, cap: $r11)
-    $r13 <- load_const("dest")
-    send_to_account($r13)
+    $r7 <- int_copy($r6)
+    $r8 <- load_const("USD/2")
+    $r9 <- load_const(5)
+    $r10 <- mk_monetary($r8, $r9)
+    $r11 <- get_amount($r10)
+    $r12 <- min_int($r7, $r11)
+    $r13 <- load_const("dest:capped")
+    send_to_account($r13, cap: $r12)
+    $r7 <- sub_int($r7, $r12)
+    $r14 <- load_const("dest")
+    send_to_account($r14, cap: $r7)
     |}]
 ;;
 
@@ -1034,6 +1050,7 @@ let%expect_test "kept dest" =
     $r5 <- load_const("acc")
     $r6 <- pull_account(account: $r5, cap: $r4)
     check_enough_funds($r6, $r4)
-    kept()
+    $r7 <- int_copy($r6)
+    kept(cap: $r7)
     |}]
 ;;
