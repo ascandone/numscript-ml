@@ -1,0 +1,13 @@
+{
+  "testCases": [
+    {
+      "it": "-",
+      "balances": {
+        "users:001": {
+          "USD/2": -100
+        }
+      },
+      "expect.postings": []
+    }
+  ]
+}
