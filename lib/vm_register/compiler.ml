@@ -196,10 +196,10 @@ let rec compile_source ~cap_reg ctx (source : Ast.source) =
     Ok dest
   | Ast.SrcAccount name, cap ->
     let* account = compile_expr ctx name in
-    let dest = get_fresh_dest ctx in
-    push_instruction
-      ctx
-      (Virtual_instruction.PullAccount { cap; account; dest; overdraft = `BoundedZero });
+    let dest =
+      push_instruction_dest ctx (fun dest ->
+        Virtual_instruction.PullAccount { cap; account; dest; overdraft = `BoundedZero })
+    in
     Ok dest
   | Ast.SrcInorder srcs, None ->
     let inorder_total_reg =
